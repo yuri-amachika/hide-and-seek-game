@@ -143,6 +143,25 @@ class SoundManager {
         osc.stop(this.ctx.currentTime + 0.8);
     }
 
+    // 家具の捜索時のカサゴソ音
+    playSearchSound(pan: number = 0, volume: number = 0.15) {
+        if (!this.ctx || this.isMuted) return;
+        const spatial = this.createSpatialNodes(pan, volume);
+        if (!spatial) return;
+
+        const osc = this.ctx.createOscillator();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(1000, this.ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(120, this.ctx.currentTime + 0.08);
+
+        spatial.gain.gain.setValueAtTime(volume * 0.4, this.ctx.currentTime);
+        spatial.gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.08);
+
+        osc.connect(spatial.panner || spatial.gain);
+        osc.start();
+        osc.stop(this.ctx.currentTime + 0.08);
+    }
+
     // 発見された時の不協和音
     playSpotted() {
         if (!this.ctx || this.isMuted) return;

@@ -14,19 +14,17 @@ function App() {
         playerLife,
         generatorsRemaining,
         gatePowerOn,
+        searchReaction,
         player,
         seekerAI,
         interactiveFurniture,
         interactiveGenerator,
         interactiveGate,
-        interactiveHider,
-        skillCheckActive,
         joystickVec,
         mousePos,
         startGame,
         returnToMenu,
         handleInteract,
-        handleSkillCheckInput,
         toggleMute,
         renderCanvas
     } = useGameLoop();
@@ -174,7 +172,8 @@ function App() {
     // ライフ表示のハート配列生成
     const renderHearts = () => {
         const hearts = [];
-        for (let i = 0; i < 3; i++) {
+        const maxLife = difficulty === 'easy' ? 4 : difficulty === 'hard' ? 2 : 3;
+        for (let i = 0; i < maxLife; i++) {
             hearts.push(
                 <span 
                     key={i} 
@@ -192,9 +191,6 @@ function App() {
     // インタラクト時のアクションテキスト決定
     const getInteractText = () => {
         if (gameMode === 'seeker') {
-            if (interactiveHider) {
-                return '捕まえる';
-            }
             if (interactiveGenerator) {
                 return '壊す';
             }
@@ -324,6 +320,7 @@ function App() {
                         <p className="font-bold text-zinc-300 mb-1">🎮 操作方法:</p>
                         <p>・【移動】PC: WASD / 矢印キー | スマホ: 左下仮想スティック</p>
                         <p>・【ダッシュ】PC: Shiftキー | スマホ: スティックを大きく傾ける</p>
+                        <p>・【向き変更】PC: マウス移動 | スマホ: 右側画面スワイプ</p>
                         <p>・【アクション】PC: スペースキー | スマホ: 右下ボタン</p>
                     </div>
                 </div>
@@ -381,6 +378,11 @@ function App() {
                             準備フェーズ: マップ内の発電機を修理し、ゲートから脱出してください！
                         </div>
                     )}
+                    {gameState === 'hiding_phase' && gameMode === 'seeker' && (
+                        <div className="absolute top-16 md:top-20 left-1/2 -translate-x-1/2 w-[90%] max-w-md bg-red-950/80 border border-red-500 text-red-100 px-4 py-2 rounded-lg text-center text-xs md:text-sm font-bold animate-pulse z-40 pointer-events-none shadow-lg backdrop-blur-sm">
+                            準備フェーズ: サバイバーが隠れるのを待っています...（残り {timer}秒）
+                        </div>
+                    )}
 
                     {/* 家具探索時の警告アラート */}
                     {gameState === 'hunting_phase' && gameMode === 'hider' && isUnderSearch && (
@@ -436,7 +438,7 @@ function App() {
                             </div>
 
                             {/* モバイル用アクションボタン (画面右下 - 動的ラベル) */}
-                            {getInteractText() !== '' && !skillCheckActive && (
+                            {getInteractText() !== '' && (
                                 <button
                                     onTouchStart={(e) => {
                                         e.stopPropagation();
@@ -449,59 +451,43 @@ function App() {
                                 </button>
                             )}
 
-                            {/* モバイル用スキルチェックタップ判定エリア (画面全体を覆う) */}
-                            {skillCheckActive && (
-                                <div 
-                                    className="absolute inset-0 bg-black/20 z-50 flex items-center justify-center pointer-events-auto cursor-pointer"
-                                    onTouchStart={(e) => {
-                                        e.stopPropagation();
-                                        handleSkillCheckInput();
-                                    }}
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleSkillCheckInput();
-                                    }}
-                                >
-                                    <div className="glass-panel px-8 py-6 rounded-2xl border-4 border-green-500 text-xl font-black text-green-400 animate-ping shadow-[0_0_30px_rgba(16,185,129,0.8)]">
-                                        👆 ここをタップ！
-                                    </div>
+                            {/* 捜索結果ポップアップ通知 */}
+                            {searchReaction && (
+                                <div className="absolute top-[20%] left-1/2 -translate-x-1/2 bg-black/85 border border-zinc-700/60 px-6 py-3 rounded-full text-center z-50 shadow-[0_0_20px_rgba(0,0,0,0.8)] animate-pulse">
+                                    <span className={`font-mono font-bold text-base tracking-wider ${
+                                        searchReaction.includes('いたぞ') ? 'text-red-500 neon-text-red' : 'text-zinc-300'
+                                    }`}>
+                                        {searchReaction}
+                                    </span>
                                 </div>
                             )}
                         </div>
 
                         {/* PC向けアクションガイド */}
-                        {!skillCheckActive && (
-                            <div className="hidden lg:block">
-                                {interactiveHider && gameMode === 'seeker' && (
-                                    <div className="absolute top-[12%] left-1/2 -translate-x-1/2 glass-panel px-4 py-2 rounded-lg border border-red-500/30 text-xs font-bold text-center z-40">
-                                        <p className="text-red-400 font-mono text-sm mb-1">{interactiveHider.name}</p>
-                                        <span className="bg-red-950 px-2 py-0.5 rounded border border-red-600 text-red-200 font-mono">SPACE</span> キーで捕まえる
-                                    </div>
-                                )}
-                                {interactiveFurniture && (
-                                    <div className="absolute top-[12%] left-1/2 -translate-x-1/2 glass-panel px-4 py-2 rounded-lg border border-blue-500/30 text-xs font-bold text-center z-40">
-                                        <p className="text-blue-400 font-mono text-sm mb-1">{interactiveFurniture.name}</p>
-                                        <span className="bg-blue-950 px-2 py-0.5 rounded border border-blue-600 text-blue-200 font-mono">SPACE</span> キーで{gameMode === 'seeker' ? '探す' : (player.isHidden ? '出る' : '隠れる')}
-                                    </div>
-                                )}
-                                {interactiveGenerator && (
-                                    <div className="absolute top-[12%] left-1/2 -translate-x-1/2 glass-panel px-4 py-2 rounded-lg border border-amber-500/30 text-xs font-bold text-center z-40">
-                                        <p className="text-amber-400 font-mono text-sm mb-1">{interactiveGenerator.name}</p>
-                                        {gameMode === 'seeker' ? (
-                                            <span><span className="bg-amber-950 px-2 py-0.5 rounded border border-amber-600 text-amber-200 font-mono">SPACE</span> キーで壊す</span>
-                                        ) : (
-                                            <span><span className="bg-amber-950 px-2 py-0.5 rounded border border-amber-600 text-amber-200 font-mono">SPACE 長押し</span> で修理</span>
-                                        )}
-                                    </div>
-                                )}
-                                {interactiveGate && gameMode === 'hider' && (
-                                    <div className="absolute top-[12%] left-1/2 -translate-x-1/2 glass-panel px-4 py-2 rounded-lg border border-green-500/30 text-xs font-bold text-center z-40">
-                                        <p className="text-green-400 font-mono text-sm mb-1">{interactiveGate.name}</p>
-                                        <span className="bg-green-950 px-2 py-0.5 rounded border border-green-600 text-green-200 font-mono">SPACE 長押し</span> で脱出ゲートを開く
-                                    </div>
-                                )}
-                            </div>
-                        )}
+                        <div className="hidden lg:block">
+                            {interactiveFurniture && (
+                                <div className="absolute top-[12%] left-1/2 -translate-x-1/2 glass-panel px-4 py-2 rounded-lg border border-blue-500/30 text-xs font-bold text-center z-40">
+                                    <p className="text-blue-400 font-mono text-sm mb-1">{interactiveFurniture.name}</p>
+                                    <span className="bg-blue-950 px-2 py-0.5 rounded border border-blue-600 text-blue-200 font-mono">SPACE</span> キーで{gameMode === 'seeker' ? '探す' : (player.isHidden ? '出る' : '隠れる')}
+                                </div>
+                            )}
+                            {interactiveGenerator && (
+                                <div className="absolute top-[12%] left-1/2 -translate-x-1/2 glass-panel px-4 py-2 rounded-lg border border-amber-500/30 text-xs font-bold text-center z-40">
+                                    <p className="text-amber-400 font-mono text-sm mb-1">{interactiveGenerator.name}</p>
+                                    {gameMode === 'seeker' ? (
+                                        <span><span className="bg-amber-950 px-2 py-0.5 rounded border border-amber-600 text-amber-200 font-mono">SPACE</span> キーで壊す</span>
+                                    ) : (
+                                        <span><span className="bg-amber-950 px-2 py-0.5 rounded border border-amber-600 text-amber-200 font-mono">SPACE 長押し</span> で修理</span>
+                                    )}
+                                </div>
+                            )}
+                            {interactiveGate && gameMode === 'hider' && (
+                                <div className="absolute top-[12%] left-1/2 -translate-x-1/2 glass-panel px-4 py-2 rounded-lg border border-green-500/30 text-xs font-bold text-center z-40">
+                                    <p className="text-green-400 font-mono text-sm mb-1">{interactiveGate.name}</p>
+                                    <span className="bg-green-950 px-2 py-0.5 rounded border border-green-600 text-green-200 font-mono">SPACE 長押し</span> で脱出ゲートを開く
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </div>
             )}

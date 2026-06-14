@@ -21,6 +21,8 @@ export interface Player extends Entity {
     // 負傷ブースト（Endurance）関連
     enduranceTimer: number; // 0より大きければ一時ダッシュ＆無敵
     hitCooldown: number; // ダメージ無敵時間
+    hiddenPreX: number | null;
+    hiddenPreY: number | null;
 }
 
 export interface AIHider extends Entity {
@@ -35,6 +37,10 @@ export interface AIHider extends Entity {
     state: 'patrolling' | 'seeking_spot' | 'repairing' | 'hidden' | 'fleeing' | 'caught';
     speedMultiplier: number;
     repairTimer: number;
+    // スタック対策
+    stuckTimer: number;
+    lastX: number;
+    lastY: number;
 }
 
 export type SeekerState = 'patrolling' | 'investigating' | 'chasing' | 'searching';
@@ -56,6 +62,10 @@ export interface SeekerAI extends Entity {
     searchTimer: number;
     growlTimer: number;
     footstepTimer: number;
+    // スタック対策
+    stuckTimer: number;
+    lastX: number;
+    lastY: number;
 }
 
 export interface GeneratorState {
@@ -64,13 +74,6 @@ export interface GeneratorState {
     isCompleted: boolean;
 }
 
-export interface SkillCheckState {
-    active: boolean;
-    progress: number; // 針の角度 (0 ~ 360)
-    targetStart: number; // 開始角度 (0 ~ 360)
-    targetWidth: number; // 幅 (角度)
-    generatorId: string;
-}
 
 export type GameMode = 'hider' | 'seeker';
 export type GameState = 'menu' | 'hiding_phase' | 'hunting_phase' | 'game_over' | 'victory';
@@ -142,6 +145,125 @@ function resolveCollision(
     return null;
 }
 
+// 難易度パラメータの設計
+export const DIFFICULTY_PARAMS = {
+    hiderMode: { // プレイヤーがサバイバー (AIがキラー)
+        easy: {
+            playerLife: 4,
+            killerPatrolSpeed: 2.1,
+            killerChaseSpeed: 2.6,
+            killerLightRadius: 140,
+            killerSoundDetectRadius: 140,
+            searchFurnitureChance: 0.15,
+        },
+        normal: {
+            playerLife: 3,
+            killerPatrolSpeed: 2.7,
+            killerChaseSpeed: 3.6,
+            killerLightRadius: 180,
+            killerSoundDetectRadius: 200,
+            searchFurnitureChance: 0.30,
+        },
+        hard: {
+            playerLife: 2,
+            killerPatrolSpeed: 3.3,
+            killerChaseSpeed: 4.8,
+            killerLightRadius: 220,
+            killerSoundDetectRadius: 320,
+            searchFurnitureChance: 0.50,
+        }
+    },
+    seekerMode: { // プレイヤーがキラー (AIがサバイバー)
+        easy: {
+            gameTimeLimit: 120,
+            hiderRepairSpeedFactor: 0.7,
+            hiderNormalSpeed: 2.5,
+            playerLightRadius: 210,
+            hiderDetectRadius: 130,
+            hiderFleeBoost: 1.4,
+        },
+        normal: {
+            gameTimeLimit: 90,
+            hiderRepairSpeedFactor: 1.0,
+            hiderNormalSpeed: 3.0,
+            playerLightRadius: 180,
+            hiderDetectRadius: 170,
+            hiderFleeBoost: 1.8,
+        },
+        hard: {
+            gameTimeLimit: 65,
+            hiderRepairSpeedFactor: 1.4,
+            hiderNormalSpeed: 3.4,
+            playerLightRadius: 150,
+            hiderDetectRadius: 220,
+            hiderFleeBoost: 2.2,
+        }
+    }
+};
+
+// 円と障害物矩形との交差判定 (AIの進路チェック用)
+function isPointInObstacle(px: number, py: number, radius: number, obstacles: (Wall | Furniture | GameGenerator)[]): boolean {
+    for (const obs of obstacles) {
+        const closestX = Math.max(obs.x, Math.min(px, obs.x + obs.width));
+        const closestY = Math.max(obs.y, Math.min(py, obs.y + obs.height));
+        const dx = px - closestX;
+        const dy = py - closestY;
+        if (dx * dx + dy * dy < radius * radius) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// 簡易障害物回避 (進行方向をずらす)
+function adjustAIPath(
+    x: number,
+    y: number,
+    angle: number,
+    radius: number,
+    obstacles: (Wall | Furniture | GameGenerator)[]
+): number {
+    const checkDist = 45;
+    const cx = x + Math.cos(angle) * checkDist;
+    const cy = y + Math.sin(angle) * checkDist;
+
+    if (!isPointInObstacle(cx, cy, radius, obstacles)) {
+        return angle; // 障害物なし
+    }
+
+    // 左右45度にずらす
+    const angleLeft = angle - Math.PI / 4;
+    const lx = x + Math.cos(angleLeft) * checkDist;
+    const ly = y + Math.sin(angleLeft) * checkDist;
+
+    const angleRight = angle + Math.PI / 4;
+    const rx = x + Math.cos(angleRight) * checkDist;
+    const ry = y + Math.sin(angleRight) * checkDist;
+
+    const leftBlocked = isPointInObstacle(lx, ly, radius, obstacles);
+    const rightBlocked = isPointInObstacle(rx, ry, radius, obstacles);
+
+    if (!leftBlocked && rightBlocked) {
+        return angleLeft;
+    } else if (leftBlocked && !rightBlocked) {
+        return angleRight;
+    } else if (!leftBlocked && !rightBlocked) {
+        return angleLeft;
+    }
+
+    // 90度
+    const angleLeft90 = angle - Math.PI / 2;
+    const angleRight90 = angle + Math.PI / 2;
+    if (!isPointInObstacle(x + Math.cos(angleLeft90) * checkDist, y + Math.sin(angleLeft90) * checkDist, radius, obstacles)) {
+        return angleLeft90;
+    }
+    if (!isPointInObstacle(x + Math.cos(angleRight90) * checkDist, y + Math.sin(angleRight90) * checkDist, radius, obstacles)) {
+        return angleRight90;
+    }
+
+    return angle;
+}
+
 export function useGameLoop() {
     // UIや画面全体の進行度を同期するための最小限のuseState
     const [gameState, setGameState] = useState<GameState>('menu');
@@ -158,6 +280,17 @@ export function useGameLoop() {
     const [playerLifeState, setPlayerLifeState] = useState<number>(3);
     const [generatorsRemaining, setGeneratorsRemaining] = useState<number>(3);
     const [gatePowerOn, setGatePowerOn] = useState<boolean>(false);
+    const [searchReaction, setSearchReaction] = useState<string | null>(null);
+
+    // 捜索リアクション自動消去タイマー
+    useEffect(() => {
+        if (searchReaction) {
+            const timer = setTimeout(() => {
+                setSearchReaction(null);
+            }, 1500);
+            return () => clearTimeout(timer);
+        }
+    }, [searchReaction]);
 
     // 毎フレーム60fpsで変更されるゲーム状態はすべてuseRefで保持 (不要なReact再レンダリングを防止)
     const playerRef = useRef<Player>({
@@ -173,7 +306,9 @@ export function useGameLoop() {
         hiddenInFurnitureId: null,
         isDead: false,
         enduranceTimer: 0,
-        hitCooldown: 0
+        hitCooldown: 0,
+        hiddenPreX: null,
+        hiddenPreY: null
     });
 
     const aiHidersRef = useRef<AIHider[]>([]);
@@ -198,7 +333,10 @@ export function useGameLoop() {
         searchTargetFurnitureId: null,
         searchTimer: 0,
         growlTimer: 0,
-        footstepTimer: 0
+        footstepTimer: 0,
+        stuckTimer: 0,
+        lastX: 0,
+        lastY: 0
     });
 
     const generatorsRef = useRef<GeneratorState[]>([
@@ -212,18 +350,10 @@ export function useGameLoop() {
         isOpen: false
     });
 
-    const skillCheckRef = useRef<SkillCheckState>({
-        active: false,
-        progress: 0,
-        targetStart: 0,
-        targetWidth: 0,
-        generatorId: ''
-    });
 
     const [interactiveFurniture, setInteractiveFurniture] = useState<Furniture | null>(null);
     const [interactiveGenerator, setInteractiveGenerator] = useState<GameGenerator | null>(null);
     const [interactiveGate, setInteractiveGate] = useState<ExitGate | null>(null);
-    const [interactiveHider, setInteractiveHider] = useState<AIHider | null>(null);
 
     // 入力監視用Ref
     const keysPressed = useRef<{ [key: string]: boolean }>({});
@@ -253,7 +383,8 @@ export function useGameLoop() {
         setScore(0);
         setTimer(15); // 準備フェーズは15秒
 
-        // プレイヤー初期化 (3ライフ)
+        // 難易度に応じたプレイヤーライフ設定
+        const maxLife = mode === 'hider' ? DIFFICULTY_PARAMS.hiderMode[diff].playerLife : 3;
         const spawnPlayer = mode === 'hider' ? gameMap.spawnPoints.playerHider : gameMap.spawnPoints.playerSeeker;
         playerRef.current = {
             x: spawnPlayer.x,
@@ -261,16 +392,18 @@ export function useGameLoop() {
             angle: -Math.PI / 2,
             radius: 14,
             speed: 3.5,
-            life: 3,
+            life: maxLife,
             stamina: 100,
             isRunning: false,
             isHidden: false,
             hiddenInFurnitureId: null,
             isDead: false,
             enduranceTimer: 0,
-            hitCooldown: 0
+            hitCooldown: 0,
+            hiddenPreX: null,
+            hiddenPreY: null
         };
-        setPlayerLifeState(3);
+        setPlayerLifeState(maxLife);
 
         // 発電機・ゲートのリセット
         generatorsRef.current = [
@@ -282,19 +415,13 @@ export function useGameLoop() {
         setGatePowerOn(false);
         exitGateRef.current = { progress: 0, isOpen: false };
 
-        skillCheckRef.current = {
-            active: false,
-            progress: 0,
-            targetStart: 0,
-            targetWidth: 0,
-            generatorId: ''
-        };
 
         // AI Hiderの初期化 (AI生存者)
         const numHiders = mode === 'seeker' ? 3 : 0;
         const availableFurniture = gameMap.furniture.filter(f => f.canHide);
         aiHidersRef.current = Array.from({ length: numHiders }).map((_, i) => {
             const spawn = gameMap.spawnPoints.aiHiders[i % gameMap.spawnPoints.aiHiders.length];
+            const baseSpeed = DIFFICULTY_PARAMS.seekerMode[diff].hiderNormalSpeed;
             return {
                 id: `ai_hider_${i}`,
                 name: `サバイバー ${i + 1}`,
@@ -303,7 +430,7 @@ export function useGameLoop() {
                 y: spawn.y,
                 angle: Math.random() * Math.PI * 2,
                 radius: 14,
-                speed: 3.3,
+                speed: baseSpeed,
                 isHidden: false,
                 hiddenInFurnitureId: null,
                 isDead: false,
@@ -311,14 +438,15 @@ export function useGameLoop() {
                 targetGeneratorId: null,
                 state: 'seeking_spot',
                 speedMultiplier: 0.85 + Math.random() * 0.3,
-                repairTimer: 0
+                repairTimer: 0,
+                stuckTimer: 0,
+                lastX: spawn.x,
+                lastY: spawn.y
             };
         });
 
         // シーカー(キラー)AIの速度調整
-        let seekerSpeed = 2.7;
-        if (diff === 'easy') seekerSpeed = 2.1;
-        if (diff === 'hard') seekerSpeed = 3.3;
+        const seekerSpeed = DIFFICULTY_PARAMS.hiderMode[diff].killerPatrolSpeed;
 
         // 巡回パスの設定 (発電機と家具を巡回する)
         const patrolPoints = [
@@ -348,7 +476,10 @@ export function useGameLoop() {
             searchTargetFurnitureId: null,
             searchTimer: 0,
             growlTimer: 0,
-            footstepTimer: 0
+            footstepTimer: 0,
+            stuckTimer: 0,
+            lastX: gameMap.spawnPoints.aiSeeker.x,
+            lastY: gameMap.spawnPoints.aiSeeker.y
         };
 
         lastTimeRef.current = performance.now();
@@ -381,17 +512,26 @@ export function useGameLoop() {
         const p = playerRef.current;
         if (gameMode === 'hider') {
             if (p.isHidden) {
-                // 隠れるのをやめて出る
-                const furn = gameMap.furniture.find(f => f.id === p.hiddenInFurnitureId);
-                if (furn) {
-                    p.x = furn.x + furn.width / 2;
-                    p.y = furn.y + furn.height + 25;
+                // 隠れるのをやめて入った場所から出る (壁抜け防止)
+                if (p.hiddenPreX !== null && p.hiddenPreY !== null) {
+                    p.x = p.hiddenPreX;
+                    p.y = p.hiddenPreY;
+                } else {
+                    const furn = gameMap.furniture.find(f => f.id === p.hiddenInFurnitureId);
+                    if (furn) {
+                        p.x = furn.x + furn.width / 2;
+                        p.y = furn.y + furn.height + 25;
+                    }
                 }
                 p.isHidden = false;
                 p.hiddenInFurnitureId = null;
+                p.hiddenPreX = null;
+                p.hiddenPreY = null;
                 soundManager.playFlashlightClick();
             } else if (interactiveFurniture && interactiveFurniture.canHide) {
-                // 家具に隠れる
+                // 家具に隠れる (入る前の座標を記憶)
+                p.hiddenPreX = p.x;
+                p.hiddenPreY = p.y;
                 p.isHidden = true;
                 p.hiddenInFurnitureId = interactiveFurniture.id;
                 p.x = interactiveFurniture.x + interactiveFurniture.width / 2;
@@ -399,23 +539,8 @@ export function useGameLoop() {
                 soundManager.playFlashlightClick();
             }
         } else {
-            // シーカー（プレイヤー）の攻撃・捜索・破壊アクション
-            if (interactiveHider) {
-                // サバイバーを攻撃・捕獲
-                soundManager.playSpotted();
-                aiHidersRef.current = aiHidersRef.current.map(h => {
-                    if (h.id === interactiveHider.id) {
-                        return { ...h, isDead: true, isHidden: false, state: 'caught' as const };
-                    }
-                    return h;
-                });
-                setScore(prev => {
-                    const next = prev + 500;
-                    if (next > highScore) setHighScore(next);
-                    return next;
-                });
-                setInteractiveHider(null); // 即時クリア
-            } else if (interactiveGenerator) {
+            // シーカー（プレイヤー）の攻撃・捜索・破壊アクション (自動捕獲移行のためサバイバー直接攻撃アクションは不要)
+            if (interactiveGenerator) {
                 // 発電機を破壊 (進行度を20%後退)
                 const gen = generatorsRef.current.find(g => g.id === interactiveGenerator.id);
                 if (gen && !gen.isCompleted && gen.progress > 0) {
@@ -425,12 +550,10 @@ export function useGameLoop() {
                 }
             } else if (interactiveFurniture) {
                 // 家具の捜索
-                soundManager.playFlashlightClick();
                 let foundAny = false;
                 aiHidersRef.current = aiHidersRef.current.map(h => {
                     if (h.isHidden && h.hiddenInFurnitureId === interactiveFurniture.id) {
                         foundAny = true;
-                        soundManager.playSpotted();
                         // 隠れている家具から飛び出して逃走させる (即死にはしない)
                         return { 
                             ...h, 
@@ -444,75 +567,18 @@ export function useGameLoop() {
                 });
 
                 if (foundAny) {
+                    // サバイバーがいた時のリアクション
                     soundManager.playSpotted();
+                    soundManager.playKillerGrowl(); // うなり声
+                    setSearchReaction("いたぞ！サバイバーを発見した！");
+                } else {
+                    // サバイバーがいなかった時のリアクション (軽い空振り音)
+                    soundManager.playFlashlightClick();
+                    setSearchReaction("誰もいないようだ...");
                 }
             }
         }
-    }, [gameState, gameMode, interactiveFurniture, interactiveGenerator, interactiveHider, highScore, getSpatialParams]);
-
-    // 修理進行などのキーホールド／タッチホールドアクション（ループ内で毎フレーム処理）
-    // スキルチェック入力判定
-    const handleSkillCheckInput = useCallback(() => {
-        const sc = skillCheckRef.current;
-        if (!sc.active) return;
-
-        const currentAngle = sc.progress;
-        const start = sc.targetStart;
-        const end = sc.targetStart + sc.targetWidth;
-
-        // 成功判定
-        const isSuccess = currentAngle >= start && currentAngle <= end;
-
-        if (isSuccess) {
-            // 修理進行度ボーナス
-            generatorsRef.current = generatorsRef.current.map(gen => {
-                if (gen.id === sc.generatorId) {
-                    const nextProgress = Math.min(100, gen.progress + 12);
-                    if (nextProgress >= 100 && !gen.isCompleted) {
-                        // 修理完了
-                        const params = getSpatialParams(
-                            gameMap.generators.find(g => g.id === gen.id)?.x || 0,
-                            gameMap.generators.find(g => g.id === gen.id)?.y || 0
-                        );
-                        soundManager.playGeneratorComplete(params.pan, params.volume);
-                        soundManager.stopGeneratorSound(gen.id);
-                        return { ...gen, progress: 100, isCompleted: true };
-                    }
-                    return { ...gen, progress: nextProgress };
-                }
-                return gen;
-            });
-            // 成功サウンド
-            soundManager.playFlashlightClick();
-        } else {
-            // 失敗: 発電機の爆発＆音感知
-            generatorsRef.current = generatorsRef.current.map(gen => {
-                if (gen.id === sc.generatorId) {
-                    return { ...gen, progress: Math.max(0, gen.progress - 8) };
-                }
-                return gen;
-            });
-
-            // 爆発音 (キラーの耳に届く)
-            const targetGen = gameMap.generators.find(g => g.id === sc.generatorId);
-            if (targetGen) {
-                const params = getSpatialParams(targetGen.x, targetGen.y);
-                soundManager.playGeneratorExplode(params.pan, params.volume);
-
-                // キラーAIに調査位置を指示 (FSM聴覚感知)
-                if (gameMode === 'hider') {
-                    const s = seekerAIRef.current;
-                    s.state = 'investigating';
-                    s.investigateX = targetGen.x + targetGen.width / 2;
-                    s.investigateY = targetGen.y + targetGen.height / 2;
-                    s.investigateTimer = 180; // 約3秒間そこを調べる
-                }
-            }
-        }
-
-        // スキルチェック終了
-        sc.active = false;
-    }, [gameMode, getSpatialParams]);
+    }, [gameState, gameMode, interactiveFurniture, interactiveGenerator, highScore, getSpatialParams]);
 
     // イベントリスナー設定
     useEffect(() => {
@@ -522,11 +588,7 @@ export function useGameLoop() {
 
             if (e.key === ' ') {
                 e.preventDefault();
-                if (skillCheckRef.current.active) {
-                    handleSkillCheckInput();
-                } else {
-                    handleInteract();
-                }
+                handleInteract();
             }
         };
 
@@ -542,7 +604,7 @@ export function useGameLoop() {
             window.removeEventListener('keydown', handleKeyDown);
             window.removeEventListener('keyup', handleKeyUp);
         };
-    }, [handleInteract, handleSkillCheckInput]);
+    }, [handleInteract]);
 
     // ゲーム内タイマー処理 (1秒毎)
     useEffect(() => {
@@ -590,46 +652,25 @@ export function useGameLoop() {
             p.hitCooldown = Math.max(0, p.hitCooldown - dt);
         }
 
-        // スキルチェック針の回転
-        const sc = skillCheckRef.current;
-        if (sc.active) {
-            sc.progress += 3.8 * (dt / 16.6) * (difficulty === 'hard' ? 1.3 : difficulty === 'normal' ? 1.0 : 0.85);
-            if (sc.progress >= 360) {
-                // 1周したら自動的に失敗判定
-                sc.active = false;
-                generatorsRef.current = generatorsRef.current.map(gen => {
-                    if (gen.id === sc.generatorId) {
-                        return { ...gen, progress: Math.max(0, gen.progress - 8) };
-                    }
-                    return gen;
-                });
-                const targetGen = gameMap.generators.find(g => g.id === sc.generatorId);
-                if (targetGen) {
-                    const params = getSpatialParams(targetGen.x, targetGen.y);
-                    soundManager.playGeneratorExplode(params.pan, params.volume);
-                    if (gameMode === 'hider') {
-                        s.state = 'investigating';
-                        s.investigateX = targetGen.x + targetGen.width / 2;
-                        s.investigateY = targetGen.y + targetGen.height / 2;
-                        s.investigateTimer = 180;
-                    }
-                }
-            }
-        }
+
 
         // 1. プレイヤー移動処理
         if (!p.isDead && !p.isHidden) {
             let dx = 0;
             let dy = 0;
 
-            if (keysPressed.current['w'] || keysPressed.current['arrowup']) dy -= 1;
-            if (keysPressed.current['s'] || keysPressed.current['arrowdown']) dy += 1;
-            if (keysPressed.current['a'] || keysPressed.current['arrowleft']) dx -= 1;
-            if (keysPressed.current['d'] || keysPressed.current['arrowright']) dx += 1;
+            const isKillerHidingPhase = (gameState === 'hiding_phase' && gameMode === 'seeker');
 
-            if (joystickVec.current.x !== 0 || joystickVec.current.y !== 0) {
-                dx = joystickVec.current.x;
-                dy = joystickVec.current.y;
+            if (!isKillerHidingPhase) {
+                if (keysPressed.current['w'] || keysPressed.current['arrowup']) dy -= 1;
+                if (keysPressed.current['s'] || keysPressed.current['arrowdown']) dy += 1;
+                if (keysPressed.current['a'] || keysPressed.current['arrowleft']) dx -= 1;
+                if (keysPressed.current['d'] || keysPressed.current['arrowright']) dx += 1;
+
+                if (joystickVec.current.x !== 0 || joystickVec.current.y !== 0) {
+                    dx = joystickVec.current.x;
+                    dy = joystickVec.current.y;
+                }
             }
 
             const len = Math.sqrt(dx * dx + dy * dy);
@@ -668,14 +709,26 @@ export function useGameLoop() {
                 // 足音の再生＆キラーへの音感知
                 if (Math.random() < 0.1) {
                     soundManager.playFootstep();
-                    // 走っている間は足音が大きく、キラーの耳に入る (距離 200px 以内)
-                    if (p.isRunning && gameMode === 'hider') {
+                    // 走っている間は足音が大きく、キラーの耳に入る
+                    if (gameMode === 'hider') {
                         const distToKiller = Math.hypot(s.x - p.x, s.y - p.y);
-                        if (distToKiller < 200) {
-                            s.state = 'investigating';
-                            s.investigateX = p.x;
-                            s.investigateY = p.y;
-                            s.investigateTimer = 120;
+                        const detectDist = DIFFICULTY_PARAMS.hiderMode[difficulty].killerSoundDetectRadius;
+                        
+                        if (p.isRunning) {
+                            if (distToKiller < detectDist) {
+                                s.state = 'investigating';
+                                s.investigateX = p.x;
+                                s.investigateY = p.y;
+                                s.investigateTimer = 120;
+                            }
+                        } else if (difficulty === 'hard') {
+                            // ハード難易度時の、通常歩行（走らない）足音の近接検知処理 (100px以内)
+                            if (distToKiller < 100) {
+                                s.state = 'investigating';
+                                s.investigateX = p.x;
+                                s.investigateY = p.y;
+                                s.investigateTimer = 100;
+                            }
                         }
                     }
                 }
@@ -706,6 +759,26 @@ export function useGameLoop() {
             // 境界クランプ
             p.x = Math.max(p.radius, Math.min(MAP_WIDTH - p.radius, p.x));
             p.y = Math.max(p.radius, Math.min(MAP_HEIGHT - p.radius, p.y));
+
+            // プレイヤー（キラー）とAIサバイバーの接触自動捕獲判定 (触れるだけで捕まえる)
+            if (gameMode === 'seeker' && gameState === 'hunting_phase') {
+                aiHidersRef.current = aiHidersRef.current.map(h => {
+                    if (!h.isDead && !h.isHidden) {
+                        const dist = Math.hypot(p.x - h.x, p.y - h.y);
+                        // 接触判定 (半径の合計 + 6pxのバッファ)
+                        if (dist < (p.radius + h.radius + 6)) {
+                            soundManager.playSpotted();
+                            setScore(prev => {
+                                const next = prev + 500;
+                                if (next > highScore) setHighScore(next);
+                                return next;
+                            });
+                            return { ...h, isDead: true, isHidden: false, state: 'caught' as const };
+                        }
+                    }
+                    return h;
+                });
+            }
         }
 
         // 2. 近接オブジェクトインタラクションの検出 (家具、発電機、ゲート)
@@ -742,25 +815,10 @@ export function useGameLoop() {
         }
         setInteractiveGate(closestGate);
 
-        let closestHider: AIHider | null = null;
-        if (gameMode === 'seeker') {
-            let minHiderDist = 38; // 攻撃・捕獲可能距離
-            for (const h of aiHidersRef.current) {
-                if (!h.isDead && !h.isHidden) {
-                    const dist = Math.hypot(p.x - h.x, p.y - h.y);
-                    if (dist < minHiderDist) {
-                        minHiderDist = dist;
-                        closestHider = h;
-                    }
-                }
-            }
-        }
-        setInteractiveHider(closestHider);
-
         // 3. 発電機修理とゲート開閉のアクション処理 (ホールド判定)
         const isActionHeld = keysPressed.current[' '] || joystickVec.current.x !== 0 || joystickVec.current.y !== 0; // タッチ対応
         // PCの「スペース」またはタッチ「アクション」でホールド修理
-        const isRepairing = isActionHeld && closestGen && !sc.active && !p.isHidden && gameMode === 'hider';
+        const isRepairing = isActionHeld && closestGen && !p.isHidden && gameMode === 'hider';
 
         if (isRepairing && closestGen) {
             const genId = closestGen.id;
@@ -788,15 +846,6 @@ export function useGameLoop() {
                     if (activeGens >= 2) {
                         setGatePowerOn(true);
                         soundManager.playGatePowerOn();
-                    }
-                } else {
-                    // 修理中、低確率 (0.5%) でスキルチェック起動
-                    if (Math.random() < 0.005) {
-                        sc.active = true;
-                        sc.progress = 0;
-                        sc.generatorId = genId;
-                        sc.targetStart = 90 + Math.random() * 180; // ランダムターゲット角度
-                        sc.targetWidth = difficulty === 'hard' ? 35 : difficulty === 'normal' ? 50 : 70;
                     }
                 }
             }
@@ -836,10 +885,28 @@ export function useGameLoop() {
         aiHidersRef.current = aiHidersRef.current.map(h => {
             if (h.isDead) return h;
 
+            // 各種状態における目標値・計算用変数
+            let nextState = h.state;
+            let nextX = h.x;
+            let nextY = h.y;
+            let nextAngle = h.angle;
+            let nextIsHidden = h.isHidden;
+            let nextHiddenInFurnitureId = h.hiddenInFurnitureId;
+            let nextTargetFurnitureId = h.targetFurnitureId;
+            let nextTargetGeneratorId = h.targetGeneratorId;
+
+            // 加速の減衰処理
+            let currentSpeedMultiplier = h.speedMultiplier;
+            if (currentSpeedMultiplier > 1.0) {
+                currentSpeedMultiplier = Math.max(1.0, currentSpeedMultiplier - 0.006 * (dt / 16.6));
+            }
+
+            const obstacles = [...gameMap.walls, ...gameMap.furniture, ...gameMap.generators];
+
             if (gameState === 'hiding_phase') {
                 // 準備フェーズ: 家具に隠れる
-                if (h.targetFurnitureId) {
-                    const furn = gameMap.furniture.find(f => f.id === h.targetFurnitureId);
+                if (nextTargetFurnitureId) {
+                    const furn = gameMap.furniture.find(f => f.id === nextTargetFurnitureId);
                     if (furn) {
                         const tx = furn.x + furn.width / 2;
                         const ty = furn.y + furn.height / 2;
@@ -848,56 +915,75 @@ export function useGameLoop() {
                         const dist = Math.hypot(dx, dy);
 
                         if (dist < 12) {
-                            return { ...h, x: tx, y: ty, isHidden: true, hiddenInFurnitureId: furn.id, state: 'hidden' as const };
+                            nextX = tx;
+                            nextY = ty;
+                            nextIsHidden = true;
+                            nextHiddenInFurnitureId = furn.id;
+                            nextState = 'hidden' as const;
                         } else {
-                            const angle = Math.atan2(dy, dx);
-                            let nx = h.x + Math.cos(angle) * h.speed * h.speedMultiplier * (dt / 16.6);
-                            let ny = h.y + Math.sin(angle) * h.speed * h.speedMultiplier * (dt / 16.6);
+                            const rawAngle = Math.atan2(dy, dx);
+                            nextAngle = adjustAIPath(h.x, h.y, rawAngle, h.radius, obstacles);
+                            nextX = h.x + Math.cos(nextAngle) * h.speed * currentSpeedMultiplier * (dt / 16.6);
+                            nextY = h.y + Math.sin(nextAngle) * h.speed * currentSpeedMultiplier * (dt / 16.6);
+                            
+                            // 家具・壁・発電機への衝突解決
                             gameMap.walls.forEach(w => {
-                                const resolved = resolveCollision({ x: nx, y: ny, radius: h.radius }, w);
-                                if (resolved) { nx = resolved.x; ny = resolved.y; }
+                                const resolved = resolveCollision({ x: nextX, y: nextY, radius: h.radius }, w);
+                                if (resolved) { nextX = resolved.x; nextY = resolved.y; }
                             });
-                            return { ...h, x: nx, y: ny, angle };
+                            gameMap.furniture.forEach(f => {
+                                // 隠れようとしているターゲット家具はすり抜けて中に入れるように衝突解決をバイパス
+                                if (f.id === nextTargetFurnitureId) return;
+                                const resolved = resolveCollision({ x: nextX, y: nextY, radius: h.radius }, f);
+                                if (resolved) { nextX = resolved.x; nextY = resolved.y; }
+                            });
+                            gameMap.generators.forEach(g => {
+                                const resolved = resolveCollision({ x: nextX, y: nextY, radius: h.radius }, g);
+                                if (resolved) { nextX = resolved.x; nextY = resolved.y; }
+                            });
                         }
                     }
                 }
             } else if (gameState === 'hunting_phase') {
                 // 狩りフェーズ
-                
-                // 加速の減衰処理
-                let currentSpeedMultiplier = h.speedMultiplier;
-                if (currentSpeedMultiplier > 1.0) {
-                    currentSpeedMultiplier = Math.max(1.0, currentSpeedMultiplier - 0.006 * (dt / 16.6));
-                }
-
-                // キラー（プレイヤー）との距離
                 const distToKiller = Math.hypot(p.x - h.x, p.y - h.y);
+                const detectDist = DIFFICULTY_PARAMS.seekerMode[difficulty].hiderDetectRadius;
 
-                // キラーが近づいた（距離 170px 内）かつ隠れていない場合、またはすでに逃走中の場合
-                if ((distToKiller < 170 || h.state === 'fleeing') && !h.isHidden) {
+                // キラーが近づいたかつ隠れていない場合、またはすでに逃走中の場合
+                if ((distToKiller < detectDist || nextState === 'fleeing') && !nextIsHidden) {
                     // 逃走
-                    h.state = 'fleeing';
-                    h.targetGeneratorId = null;
-                    const angle = Math.atan2(h.y - p.y, h.x - p.x);
-                    let nx = h.x + Math.cos(angle) * h.speed * 1.15 * currentSpeedMultiplier * (dt / 16.6);
-                    let ny = h.y + Math.sin(angle) * h.speed * 1.15 * currentSpeedMultiplier * (dt / 16.6);
+                    nextState = 'fleeing';
+                    nextTargetGeneratorId = null;
+                    const rawAngle = Math.atan2(h.y - p.y, h.x - p.x);
+                    nextAngle = adjustAIPath(h.x, h.y, rawAngle, h.radius, obstacles);
+                    
+                    const baseSpeed = DIFFICULTY_PARAMS.seekerMode[difficulty].hiderNormalSpeed;
+                    const fleeBoost = DIFFICULTY_PARAMS.seekerMode[difficulty].hiderFleeBoost;
+                    nextX = h.x + Math.cos(nextAngle) * baseSpeed * fleeBoost * currentSpeedMultiplier * (dt / 16.6);
+                    nextY = h.y + Math.sin(nextAngle) * baseSpeed * fleeBoost * currentSpeedMultiplier * (dt / 16.6);
 
+                    // 衝突解決
                     gameMap.walls.forEach(w => {
-                        const resolved = resolveCollision({ x: nx, y: ny, radius: h.radius }, w);
-                        if (resolved) { nx = resolved.x; ny = resolved.y; }
+                        const resolved = resolveCollision({ x: nextX, y: nextY, radius: h.radius }, w);
+                        if (resolved) { nextX = resolved.x; nextY = resolved.y; }
+                    });
+                    gameMap.furniture.forEach(f => {
+                        const resolved = resolveCollision({ x: nextX, y: nextY, radius: h.radius }, f);
+                        if (resolved) { nextX = resolved.x; nextY = resolved.y; }
+                    });
+                    gameMap.generators.forEach(g => {
+                        const resolved = resolveCollision({ x: nextX, y: nextY, radius: h.radius }, g);
+                        if (resolved) { nextX = resolved.x; nextY = resolved.y; }
                     });
 
-                    // キラーから十分に離れた（距離 240px 以上）場合、隠れ直しへ移行
-                    let nextState: AIHider['state'] = 'fleeing';
-                    let targetFurnitureId = h.targetFurnitureId;
-
-                    if (distToKiller > 240) {
-                        // 近くの canHide: true な家具を検索
+                    // キラーから十分に離れた場合、またはキラーから一定距離(130px)離れており、かつキラーの視線が通っていない（壁の裏などに回り込んだ）場合、隠れ直しへ移行
+                    const isKillerNearButOutOfSight = distToKiller > 130 && !checkVisibility(p, h, gameMap.walls, gameMap.furniture);
+                    if (distToKiller > 240 || isKillerNearButOutOfSight) {
                         let closestF: Furniture | null = null;
                         let minFDist = 9999;
                         for (const f of gameMap.furniture) {
                             if (f.canHide) {
-                                const fdist = Math.hypot(h.x - (f.x + f.width/2), h.y - (f.y + f.height/2));
+                                const fdist = Math.hypot(nextX - (f.x + f.width/2), nextY - (f.y + f.height/2));
                                 if (fdist < minFDist) {
                                     minFDist = fdist;
                                     closestF = f;
@@ -907,25 +993,12 @@ export function useGameLoop() {
 
                         if (closestF) {
                             nextState = 'seeking_spot';
-                            targetFurnitureId = closestF.id;
+                            nextTargetFurnitureId = closestF.id;
                         }
                     }
-
-                    return { 
-                        ...h, 
-                        x: nx, 
-                        y: ny, 
-                        angle, 
-                        state: nextState, 
-                        targetFurnitureId, 
-                        targetGeneratorId: null, 
-                        speedMultiplier: currentSpeedMultiplier 
-                    };
-                }
-
-                // 隠れ場所へ向かう状態
-                if (h.state === 'seeking_spot' && h.targetFurnitureId) {
-                    const furn = gameMap.furniture.find(f => f.id === h.targetFurnitureId);
+                } else if (nextState === 'seeking_spot' && nextTargetFurnitureId) {
+                    // 隠れ場所へ向かう状態
+                    const furn = gameMap.furniture.find(f => f.id === nextTargetFurnitureId);
                     if (furn) {
                         const tx = furn.x + furn.width / 2;
                         const ty = furn.y + furn.height / 2;
@@ -934,120 +1007,172 @@ export function useGameLoop() {
                         const dist = Math.hypot(dx, dy);
 
                         if (dist < 15) {
-                            // 隠れる
-                            return { 
-                                ...h, 
-                                x: tx, 
-                                y: ty, 
-                                isHidden: true, 
-                                hiddenInFurnitureId: furn.id, 
-                                state: 'hidden' as const, 
-                                speedMultiplier: currentSpeedMultiplier 
-                            };
+                            nextX = tx;
+                            nextY = ty;
+                            nextIsHidden = true;
+                            nextHiddenInFurnitureId = furn.id;
+                            nextState = 'hidden' as const;
                         } else {
-                            const angle = Math.atan2(dy, dx);
-                            let nx = h.x + Math.cos(angle) * h.speed * currentSpeedMultiplier * (dt / 16.6);
-                            let ny = h.y + Math.sin(angle) * h.speed * currentSpeedMultiplier * (dt / 16.6);
+                            const rawAngle = Math.atan2(dy, dx);
+                            nextAngle = adjustAIPath(h.x, h.y, rawAngle, h.radius, obstacles);
+                            const baseSpeed = DIFFICULTY_PARAMS.seekerMode[difficulty].hiderNormalSpeed;
+                            nextX = h.x + Math.cos(nextAngle) * baseSpeed * currentSpeedMultiplier * (dt / 16.6);
+                            nextY = h.y + Math.sin(nextAngle) * baseSpeed * currentSpeedMultiplier * (dt / 16.6);
+
+                            // 衝突解決
                             gameMap.walls.forEach(w => {
-                                const resolved = resolveCollision({ x: nx, y: ny, radius: h.radius }, w);
-                                if (resolved) { nx = resolved.x; ny = resolved.y; }
+                                const resolved = resolveCollision({ x: nextX, y: nextY, radius: h.radius }, w);
+                                if (resolved) { nextX = resolved.x; nextY = resolved.y; }
                             });
-                            return { ...h, x: nx, y: ny, angle, speedMultiplier: currentSpeedMultiplier };
+                            gameMap.furniture.forEach(f => {
+                                // 隠れようとしているターゲット家具はすり抜けて中に入れるように衝突解決をバイパス
+                                if (f.id === nextTargetFurnitureId) return;
+                                const resolved = resolveCollision({ x: nextX, y: nextY, radius: h.radius }, f);
+                                if (resolved) { nextX = resolved.x; nextY = resolved.y; }
+                            });
+                            gameMap.generators.forEach(g => {
+                                const resolved = resolveCollision({ x: nextX, y: nextY, radius: h.radius }, g);
+                                if (resolved) { nextX = resolved.x; nextY = resolved.y; }
+                            });
                         }
                     }
-                }
-
-                // すでに隠れている状態
-                if (h.state === 'hidden') {
+                } else if (nextState === 'hidden') {
+                    // すでに隠れている状態
                     // キラーから遠く（400px以上）にいれば、時々出てきて発電機を修理しようとする
                     if (distToKiller > 400 && Math.random() < 0.002) {
                         const incompleteGens = generatorsRef.current.filter(g => !g.isCompleted);
                         if (incompleteGens.length > 0) {
                             const target = incompleteGens[Math.floor(Math.random() * incompleteGens.length)].id;
-                            return { 
-                                ...h, 
-                                isHidden: false, 
-                                hiddenInFurnitureId: null, 
-                                targetGeneratorId: target, 
-                                state: 'patrolling' as const, 
-                                speedMultiplier: currentSpeedMultiplier 
-                            };
+                            nextIsHidden = false;
+                            nextHiddenInFurnitureId = null;
+                            nextTargetGeneratorId = target;
+                            nextState = 'patrolling' as const;
                         }
                     }
-                    return { ...h, speedMultiplier: currentSpeedMultiplier }; // 隠れ続ける
-                }
-
-                // 発電機の修理活動
-                if (!h.targetGeneratorId) {
-                    const incompleteGens = generatorsRef.current.filter(g => !g.isCompleted);
-                    if (incompleteGens.length > 0) {
-                        h.targetGeneratorId = incompleteGens[Math.floor(Math.random() * incompleteGens.length)].id;
-                        h.state = 'patrolling';
-                    }
-                }
-
-                if (h.targetGeneratorId) {
-                    const targetGen = gameMap.generators.find(g => g.id === h.targetGeneratorId);
-                    const genState = generatorsRef.current.find(g => g.id === h.targetGeneratorId);
-
-                    if (genState && genState.isCompleted) {
-                        // 完了していたら近くの家具に隠れる
-                        let closestF: Furniture | null = null;
-                        let minFDist = 9999;
-                        for (const f of gameMap.furniture) {
-                            if (f.canHide) {
-                                const fdist = Math.hypot(h.x - (f.x + f.width/2), h.y - (f.y + f.height/2));
-                                if (fdist < minFDist) {
-                                    minFDist = fdist;
-                                    closestF = f;
-                                }
-                            }
+                } else {
+                    // 発電機の修理活動
+                    if (!nextTargetGeneratorId) {
+                        const incompleteGens = generatorsRef.current.filter(g => !g.isCompleted);
+                        if (incompleteGens.length > 0) {
+                            nextTargetGeneratorId = incompleteGens[Math.floor(Math.random() * incompleteGens.length)].id;
+                            nextState = 'patrolling';
                         }
-
-                        return { 
-                            ...h, 
-                            targetGeneratorId: null, 
-                            targetFurnitureId: closestF ? closestF.id : null, 
-                            state: closestF ? 'seeking_spot' as const : 'patrolling' as const,
-                            speedMultiplier: currentSpeedMultiplier 
-                        };
                     }
 
-                    if (targetGen && genState) {
-                        const tx = targetGen.x + targetGen.width / 2;
-                        const ty = targetGen.y + targetGen.height + 15;
-                        const dx = tx - h.x;
-                        const dy = ty - h.y;
-                        const dist = Math.hypot(dx, dy);
+                    if (nextTargetGeneratorId) {
+                        const targetGen = gameMap.generators.find(g => g.id === nextTargetGeneratorId);
+                        const genState = generatorsRef.current.find(g => g.id === nextTargetGeneratorId);
 
-                        if (dist < 15) {
-                            // 修理中
-                            h.state = 'repairing';
-                            genState.progress = Math.min(100, genState.progress + 0.05 * (dt / 16.6));
-
-                            if (genState.progress >= 100) {
-                                genState.isCompleted = true;
-                                const activeGens = generatorsRef.current.filter(g => g.isCompleted).length;
-                                setGeneratorsRemaining(Math.max(0, 3 - activeGens));
-                                if (activeGens >= 2) {
-                                    setGatePowerOn(true);
+                        if (genState && genState.isCompleted) {
+                            let closestF: Furniture | null = null;
+                            let minFDist = 9999;
+                            for (const f of gameMap.furniture) {
+                                if (f.canHide) {
+                                    const fdist = Math.hypot(h.x - (f.x + f.width/2), h.y - (f.y + f.height/2));
+                                    if (fdist < minFDist) {
+                                        minFDist = fdist;
+                                        closestF = f;
+                                    }
                                 }
                             }
-                        } else {
-                            // 移動
-                            const angle = Math.atan2(dy, dx);
-                            let nx = h.x + Math.cos(angle) * h.speed * (dt / 16.6);
-                            let ny = h.y + Math.sin(angle) * h.speed * (dt / 16.6);
-                            gameMap.walls.forEach(w => {
-                                const resolved = resolveCollision({ x: nx, y: ny, radius: h.radius }, w);
-                                if (resolved) { nx = resolved.x; ny = resolved.y; }
-                            });
-                            return { ...h, x: nx, y: ny, angle, speedMultiplier: currentSpeedMultiplier };
+
+                            nextTargetGeneratorId = null;
+                            nextTargetFurnitureId = closestF ? closestF.id : null;
+                            nextState = closestF ? 'seeking_spot' as const : 'patrolling' as const;
+                        } else if (targetGen && genState) {
+                            const tx = targetGen.x + targetGen.width / 2;
+                            const ty = targetGen.y + targetGen.height + 15;
+                            const dx = tx - h.x;
+                            const dy = ty - h.y;
+                            const dist = Math.hypot(dx, dy);
+
+                            if (dist < 15) {
+                                // 修理中
+                                nextState = 'repairing';
+                                const repairFactor = DIFFICULTY_PARAMS.seekerMode[difficulty].hiderRepairSpeedFactor;
+                                genState.progress = Math.min(100, genState.progress + 0.05 * repairFactor * (dt / 16.6));
+
+                                if (genState.progress >= 100) {
+                                    genState.isCompleted = true;
+                                    const activeGens = generatorsRef.current.filter(g => g.isCompleted).length;
+                                    setGeneratorsRemaining(Math.max(0, 3 - activeGens));
+                                    if (activeGens >= 2) {
+                                        setGatePowerOn(true);
+                                    }
+                                }
+                            } else {
+                                // 移動
+                                const rawAngle = Math.atan2(dy, dx);
+                                nextAngle = adjustAIPath(h.x, h.y, rawAngle, h.radius, obstacles);
+                                const baseSpeed = DIFFICULTY_PARAMS.seekerMode[difficulty].hiderNormalSpeed;
+                                nextX = h.x + Math.cos(nextAngle) * baseSpeed * (dt / 16.6);
+                                nextY = h.y + Math.sin(nextAngle) * baseSpeed * (dt / 16.6);
+
+                                // 衝突解決
+                                gameMap.walls.forEach(w => {
+                                    const resolved = resolveCollision({ x: nextX, y: nextY, radius: h.radius }, w);
+                                    if (resolved) { nextX = resolved.x; nextY = resolved.y; }
+                                });
+                                gameMap.furniture.forEach(f => {
+                                    const resolved = resolveCollision({ x: nextX, y: nextY, radius: h.radius }, f);
+                                    if (resolved) { nextX = resolved.x; nextY = resolved.y; }
+                                });
+                                gameMap.generators.forEach(g => {
+                                    const resolved = resolveCollision({ x: nextX, y: nextY, radius: h.radius }, g);
+                                    if (resolved) { nextX = resolved.x; nextY = resolved.y; }
+                                });
+                            }
                         }
                     }
                 }
             }
-            return h;
+
+            // スタック検知と復帰処理
+            const distMoved = Math.hypot(nextX - h.lastX, nextY - h.lastY);
+            const isMovingState = nextState === 'seeking_spot' || nextState === 'patrolling' || nextState === 'fleeing';
+            let nextStuckTimer = h.stuckTimer;
+
+            if (isMovingState && distMoved < 0.1) {
+                nextStuckTimer += dt;
+                if (nextStuckTimer > 800) { // 約0.8秒スタック
+                    nextStuckTimer = 0;
+                    if (nextState === 'seeking_spot') {
+                        // 家具を諦めて別のランダムな家具へ
+                        const availableFurniture = gameMap.furniture.filter(f => f.canHide && f.id !== nextTargetFurnitureId);
+                        if (availableFurniture.length > 0) {
+                            nextTargetFurnitureId = availableFurniture[Math.floor(Math.random() * availableFurniture.length)].id;
+                        }
+                    } else if (nextState === 'patrolling') {
+                        // 発電機を諦めて別の発電機へ
+                        const incompleteGens = generatorsRef.current.filter(g => !g.isCompleted && g.id !== nextTargetGeneratorId);
+                        if (incompleteGens.length > 0) {
+                            nextTargetGeneratorId = incompleteGens[Math.floor(Math.random() * incompleteGens.length)].id;
+                        }
+                    }
+                    // 反対方向に一時ダッシュ
+                    currentSpeedMultiplier = 2.0; 
+                    nextX -= Math.cos(nextAngle) * 20;
+                    nextY -= Math.sin(nextAngle) * 20;
+                }
+            } else {
+                nextStuckTimer = 0;
+            }
+
+            return {
+                ...h,
+                x: nextX,
+                y: nextY,
+                angle: nextAngle,
+                isHidden: nextIsHidden,
+                hiddenInFurnitureId: nextHiddenInFurnitureId,
+                targetFurnitureId: nextTargetFurnitureId,
+                targetGeneratorId: nextTargetGeneratorId,
+                state: nextState,
+                speedMultiplier: currentSpeedMultiplier,
+                stuckTimer: nextStuckTimer,
+                lastX: nextX,
+                lastY: nextY
+            };
         });
 
         // 5. AI Seeker (キラーAI) のFSM処理
@@ -1080,6 +1205,7 @@ export function useGameLoop() {
 
             // キラーFSM状態機械
             const checkPlayerVis = checkVisibility(s, p, gameMap.walls, gameMap.furniture);
+            const obstacles = [...gameMap.walls, ...gameMap.furniture, ...gameMap.generators];
 
             if (s.state === 'patrolling') {
                 // 発電機または巡回パスに沿って移動
@@ -1104,7 +1230,21 @@ export function useGameLoop() {
                 if (dist < 20) {
                     // 目標に到着、次の巡回先へ、または家具を捜索
                     const isFurniture = gameMap.furniture.some(f => f.id === s.patrolPath[s.currentPatrolIndex]);
-                    if (isFurniture && Math.random() < 0.35) {
+                    let searchChance = DIFFICULTY_PARAMS.hiderMode[difficulty].searchFurnitureChance;
+
+                    if (isFurniture) {
+                        // もしプレイヤーがその家具に隠れている場合、探す確率を +50% 上乗せしてアグレッシブに探させる
+                        if (p.isHidden && p.hiddenInFurnitureId === s.patrolPath[s.currentPatrolIndex]) {
+                            searchChance = Math.min(0.95, searchChance + 0.50);
+                        }
+                        // もし他のAIサバイバーが隠れている場合も +35% 上乗せ
+                        const anyHiderHere = aiHidersRef.current.some(h => h.isHidden && h.hiddenInFurnitureId === s.patrolPath[s.currentPatrolIndex]);
+                        if (anyHiderHere) {
+                            searchChance = Math.min(0.90, searchChance + 0.35);
+                        }
+                    }
+
+                    if (isFurniture && Math.random() < searchChance) {
                         // 一定確率でその家具を捜索する
                         s.state = 'searching';
                         s.searchTimer = 70;
@@ -1113,9 +1253,11 @@ export function useGameLoop() {
                         s.currentPatrolIndex = (s.currentPatrolIndex + 1) % s.patrolPath.length;
                     }
                 } else {
-                    s.angle = Math.atan2(dy, dx);
-                    s.x += Math.cos(s.angle) * s.speed * (dt / 16.6);
-                    s.y += Math.sin(s.angle) * s.speed * (dt / 16.6);
+                    const rawAngle = Math.atan2(dy, dx);
+                    s.angle = adjustAIPath(s.x, s.y, rawAngle, s.radius, obstacles);
+                    const speed = DIFFICULTY_PARAMS.hiderMode[difficulty].killerPatrolSpeed;
+                    s.x += Math.cos(s.angle) * speed * (dt / 16.6);
+                    s.y += Math.sin(s.angle) * speed * (dt / 16.6);
                 }
 
                 // 追跡遷移 (視認)
@@ -1139,9 +1281,11 @@ export function useGameLoop() {
                         s.state = 'patrolling';
                     }
                 } else {
-                    s.angle = Math.atan2(dy, dx);
-                    s.x += Math.cos(s.angle) * s.speed * 1.1 * (dt / 16.6);
-                    s.y += Math.sin(s.angle) * s.speed * 1.1 * (dt / 16.6);
+                    const rawAngle = Math.atan2(dy, dx);
+                    s.angle = adjustAIPath(s.x, s.y, rawAngle, s.radius, obstacles);
+                    const speed = DIFFICULTY_PARAMS.hiderMode[difficulty].killerPatrolSpeed * 1.1;
+                    s.x += Math.cos(s.angle) * speed * (dt / 16.6);
+                    s.y += Math.sin(s.angle) * speed * (dt / 16.6);
                 }
 
                 if (checkPlayerVis && !p.isHidden && !p.isDead) {
@@ -1192,15 +1336,20 @@ export function useGameLoop() {
                 }
 
                 if (dist > 15) {
-                    s.angle = Math.atan2(dy, dx);
-                    s.x += Math.cos(s.angle) * s.speed * 1.35 * (dt / 16.6); // 追跡時速度1.35倍
-                    s.y += Math.sin(s.angle) * s.speed * 1.35 * (dt / 16.6);
+                    const rawAngle = Math.atan2(dy, dx);
+                    s.angle = adjustAIPath(s.x, s.y, rawAngle, s.radius, obstacles);
+                    const speed = DIFFICULTY_PARAMS.hiderMode[difficulty].killerChaseSpeed;
+                    s.x += Math.cos(s.angle) * speed * (dt / 16.6);
+                    s.y += Math.sin(s.angle) * speed * (dt / 16.6);
                 }
 
-                // 見失い判定 (3秒視界から消えたら記憶位置の家具捜索へ移行)
-                if (!checkPlayerVis && !p.isHidden) {
+                // 見失い判定 (3秒視界から消えたら、または追跡中にプレイヤーが家具に隠れ込んだら記憶位置の家具捜索へ移行)
+                const shouldLostChase = !checkPlayerVis || p.isHidden;
+                if (shouldLostChase) {
                     s.lastSeenTimer += dt;
-                    if (s.lastSeenTimer > 3000) {
+                    // プレイヤーが隠れた場合は即座（0.3秒後）に、視界から消えただけなら3秒後に捜索へ移行
+                    const lostTimeout = p.isHidden ? 300 : 3000;
+                    if (s.lastSeenTimer > lostTimeout) {
                         s.state = 'searching';
                         // 記憶位置に最も近い家具を探す
                         let closestF: Furniture | null = null;
@@ -1223,6 +1372,12 @@ export function useGameLoop() {
             } else if (s.state === 'searching') {
                 s.searchTimer -= dt;
                 s.angle = s.angle + Math.sin(s.searchTimer * 0.05) * 0.05;
+
+                // 捜索中の定期的な効果音の再生 (約0.3秒ごと)
+                if (Math.floor(s.searchTimer) % 18 === 0) {
+                    const spatial = getSpatialParams(s.x, s.y);
+                    soundManager.playSearchSound(spatial.pan, spatial.volume);
+                }
 
                 if (s.searchTimer <= 0) {
                     // 家具調べ完了
@@ -1264,13 +1419,41 @@ export function useGameLoop() {
                     }
                 }
             }
-
-            // キラー壁衝突
-            gameMap.walls.forEach(wall => {
-                const resolved = resolveCollision({ x: s.x, y: s.y, radius: s.radius }, wall);
-                if (resolved) { s.x = resolved.x; s.y = resolved.y; }
-            });
-        }
+ 
+             // キラー衝突解決 (壁、家具、発電機)
+             gameMap.walls.forEach(wall => {
+                 const resolved = resolveCollision({ x: s.x, y: s.y, radius: s.radius }, wall);
+                 if (resolved) { s.x = resolved.x; s.y = resolved.y; }
+             });
+             gameMap.furniture.forEach(furn => {
+                 const resolved = resolveCollision({ x: s.x, y: s.y, radius: s.radius }, furn);
+                 if (resolved) { s.x = resolved.x; s.y = resolved.y; }
+             });
+             gameMap.generators.forEach(gen => {
+                 const resolved = resolveCollision({ x: s.x, y: s.y, radius: s.radius }, gen);
+                 if (resolved) { s.x = resolved.x; s.y = resolved.y; }
+             });
+ 
+             // スタック検知と復帰処理
+             const distMoved = Math.hypot(s.x - s.lastX, s.y - s.lastY);
+             const isMovingState = s.state === 'patrolling' || s.state === 'investigating' || s.state === 'chasing';
+             
+             if (isMovingState && distMoved < 0.1) {
+                 s.stuckTimer += dt;
+                 if (s.stuckTimer > 800) { // 約0.8秒スタック
+                     if (s.state === 'patrolling') {
+                         s.currentPatrolIndex = (s.currentPatrolIndex + 1) % s.patrolPath.length;
+                     }
+                     s.x -= Math.cos(s.angle) * 15;
+                     s.y -= Math.sin(s.angle) * 15;
+                     s.stuckTimer = 0;
+                 }
+             } else {
+                 s.stuckTimer = 0;
+             }
+             s.lastX = s.x;
+             s.lastY = s.y;
+         }
 
         // 6. シーカーモード（自分が殺人鬼）のクリア判定 (全員捕らえたら勝利)
         if (gameMode === 'seeker' && gameState === 'hunting_phase') {
@@ -1292,16 +1475,24 @@ export function useGameLoop() {
         const dy = target.y - src.y;
         const dist = Math.hypot(dx, dy);
 
-        const maxDist = 240;
-        if (dist > maxDist) return false;
+        // 難易度とゲームモードに応じた視野半径 (lightRadius) を決定する
+        let lightRadius = 180;
+        if (gameMode === 'hider') {
+            // プレイヤーがサバイバーの場合、光源 (src) がキラー (s) ならキラーの視野、
+            // 光源がプレイヤー (p) ならプレイヤーの周囲極小視野 (75px)
+            if (src === seekerAIRef.current) {
+                lightRadius = DIFFICULTY_PARAMS.hiderMode[difficulty].killerLightRadius;
+            } else if (src === playerRef.current) {
+                lightRadius = 75; // プレイヤーの極小視野
+            }
+        } else {
+            // プレイヤーがキラーの場合、光源がプレイヤー (p) ならプレイヤー (キラー) の視野
+            if (src === playerRef.current) {
+                lightRadius = DIFFICULTY_PARAMS.seekerMode[difficulty].playerLightRadius;
+            }
+        }
 
-        const angleToTarget = Math.atan2(dy, dx);
-        let angleDiff = Math.abs(angleToTarget - src.angle);
-        while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
-        angleDiff = Math.abs(angleDiff);
-
-        const fov = Math.PI / 4.2; // 視野角約85度
-        if (angleDiff > fov) return false;
+        if (dist > lightRadius) return false;
 
         const obstacles = [...walls, ...furniture];
         return !isLineObstructed(src, target, obstacles);
@@ -1385,9 +1576,17 @@ export function useGameLoop() {
 
             if (furn.canHide && gameMode === 'hider') {
                 const isClose = interactiveFurniture?.id === furn.id;
-                ctx.strokeStyle = isClose ? '#3b82f6' : 'rgba(59, 130, 246, 0.15)';
-                ctx.lineWidth = isClose ? 2 : 1;
-                ctx.strokeRect(furn.x - 2, furn.y - 2, furn.width + 4, furn.height + 4);
+                const isBeingSearched = s.state === 'searching' && s.searchTargetFurnitureId === furn.id;
+
+                if (isBeingSearched) {
+                    ctx.strokeStyle = Math.sin(Date.now() * 0.025) > 0 ? '#ef4444' : 'rgba(239, 68, 68, 0.3)';
+                    ctx.lineWidth = 3;
+                    ctx.strokeRect(furn.x - 2, furn.y - 2, furn.width + 4, furn.height + 4);
+                } else {
+                    ctx.strokeStyle = isClose ? '#3b82f6' : 'rgba(59, 130, 246, 0.15)';
+                    ctx.lineWidth = isClose ? 2 : 1;
+                    ctx.strokeRect(furn.x - 2, furn.y - 2, furn.width + 4, furn.height + 4);
+                }
             }
         });
 
@@ -1409,13 +1608,13 @@ export function useGameLoop() {
             const maskCtx = maskCanvas.getContext('2d');
 
             if (maskCtx) {
-                // 不透明度を0.96から0.72に下げ、懐中電灯外も薄暗い程度にして見やすく
+                // 不透明度を0.72にして見やすく
                 maskCtx.fillStyle = 'rgba(2, 3, 8, 0.72)'; 
                 maskCtx.fillRect(0, 0, MAP_WIDTH, MAP_HEIGHT);
 
                 maskCtx.globalCompositeOperation = 'destination-out';
 
-                const drawCone = (sx: number, sy: number, sa: number, range: number, fov: number) => {
+                const drawCircleLight = (sx: number, sy: number, range: number) => {
                     const grad = maskCtx.createRadialGradient(sx, sy, 10, sx, sy, range);
                     grad.addColorStop(0, 'rgba(255, 255, 255, 1.0)');
                     grad.addColorStop(0.3, 'rgba(255, 255, 255, 0.85)');
@@ -1424,28 +1623,19 @@ export function useGameLoop() {
 
                     maskCtx.fillStyle = grad;
                     maskCtx.beginPath();
-                    maskCtx.moveTo(sx, sy);
-                    maskCtx.arc(sx, sy, range, sa - fov / 2, sa + fov / 2);
-                    maskCtx.closePath();
+                    maskCtx.arc(sx, sy, range, 0, Math.PI * 2);
                     maskCtx.fill();
                 };
 
-                // キラーの懐中電灯
-                // プレイヤーの負傷Endurance時、キラーが非常に近い場合は懐中電灯がフリッカー（明滅）する
-                const isFlickering = gameMode === 'hider' && Math.hypot(p.x - s.x, p.y - s.y) < 130 && Math.sin(Date.now() * 0.06) > 0.4;
-                if (!isFlickering) {
-                    drawCone(activeSeeker.x, activeSeeker.y, activeSeeker.angle, 250, Math.PI / 3.8);
-                }
+                // キラーの全方位視野 (チカチカする明滅エフェクトは削除)
+                const range = gameMode === 'seeker' 
+                    ? DIFFICULTY_PARAMS.seekerMode[difficulty].playerLightRadius 
+                    : DIFFICULTY_PARAMS.hiderMode[difficulty].killerLightRadius;
+                drawCircleLight(activeSeeker.x, activeSeeker.y, range);
 
-                // プレイヤーの周囲の極小視野
+                // プレイヤーの周囲の極小視野 (75px)
                 if (gameMode === 'hider' && !p.isHidden) {
-                    const pGrad = maskCtx.createRadialGradient(p.x, p.y, 5, p.x, p.y, 75);
-                    pGrad.addColorStop(0, 'rgba(255, 255, 255, 0.85)');
-                    pGrad.addColorStop(1, 'rgba(255, 255, 255, 0.0)');
-                    maskCtx.fillStyle = pGrad;
-                    maskCtx.beginPath();
-                    maskCtx.arc(p.x, p.y, 75, 0, Math.PI * 2);
-                    maskCtx.fill();
+                    drawCircleLight(p.x, p.y, 75);
                 }
 
                 ctx.drawImage(maskCanvas, 0, 0);
@@ -1495,12 +1685,11 @@ export function useGameLoop() {
                 ctx.arc(s.x, s.y, s.radius, 0, Math.PI * 2);
                 ctx.fill();
 
-                ctx.strokeStyle = 'rgba(239, 68, 68, 0.2)';
-                ctx.lineWidth = 1;
+                ctx.strokeStyle = 'rgba(239, 68, 68, 0.15)';
+                ctx.lineWidth = 1.5;
                 ctx.beginPath();
-                ctx.moveTo(s.x, s.y);
-                ctx.arc(s.x, s.y, 250, s.angle - Math.PI / 7.6, s.angle + Math.PI / 7.6);
-                ctx.closePath();
+                const sRange = DIFFICULTY_PARAMS.hiderMode[difficulty].killerLightRadius;
+                ctx.arc(s.x, s.y, sRange, 0, Math.PI * 2);
                 ctx.stroke();
 
                 ctx.strokeStyle = '#fff';
@@ -1514,6 +1703,13 @@ export function useGameLoop() {
                 ctx.font = 'bold 10px Courier New';
                 ctx.textAlign = 'center';
                 ctx.fillText('KILLER', s.x, s.y - s.radius - 6);
+
+                if (s.state === 'searching') {
+                    ctx.fillStyle = '#f59e0b';
+                    ctx.font = 'bold 16px sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('❓', s.x, s.y - s.radius - 20);
+                }
             }
         }
 
@@ -1538,15 +1734,7 @@ export function useGameLoop() {
                     ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
                     ctx.fill();
 
-                    if (gameMode === 'seeker') {
-                        ctx.strokeStyle = 'rgba(245, 158, 11, 0.2)';
-                        ctx.lineWidth = 1;
-                        ctx.beginPath();
-                        ctx.moveTo(p.x, p.y);
-                        ctx.arc(p.x, p.y, 250, p.angle - Math.PI / 7.6, p.angle + Math.PI / 7.6);
-                        ctx.closePath();
-                        ctx.stroke();
-                    }
+
 
                     ctx.strokeStyle = '#fff';
                     ctx.lineWidth = 2;
@@ -1573,47 +1761,7 @@ export function useGameLoop() {
             }
         }
 
-        // 10. スキルチェックリングのCanvas内描画 (Reactを使わず直接Canvasに60fpsで描画)
-        const sc = skillCheckRef.current;
-        if (sc.active && !p.isDead) {
-            ctx.save();
-            ctx.translate(p.x, p.y - p.radius - 28);
 
-            const ringRadius = 18;
-
-            // 背景円
-            ctx.strokeStyle = 'rgba(0,0,0,0.6)';
-            ctx.lineWidth = 5;
-            ctx.beginPath();
-            ctx.arc(0, 0, ringRadius, 0, Math.PI * 2);
-            ctx.stroke();
-
-            ctx.strokeStyle = '#374151';
-            ctx.lineWidth = 3;
-            ctx.beginPath();
-            ctx.arc(0, 0, ringRadius, 0, Math.PI * 2);
-            ctx.stroke();
-
-            // 成功ターゲットゾーン (グリーン)
-            const radStart = (sc.targetStart * Math.PI) / 180 - Math.PI / 2;
-            const radEnd = ((sc.targetStart + sc.targetWidth) * Math.PI) / 180 - Math.PI / 2;
-            ctx.strokeStyle = '#10b981';
-            ctx.lineWidth = 4;
-            ctx.beginPath();
-            ctx.arc(0, 0, ringRadius, radStart, radEnd);
-            ctx.stroke();
-
-            // 動く針
-            const needleRad = (sc.progress * Math.PI) / 180 - Math.PI / 2;
-            ctx.strokeStyle = '#fff';
-            ctx.lineWidth = 2.5;
-            ctx.beginPath();
-            ctx.moveTo(0, 0);
-            ctx.lineTo(Math.cos(needleRad) * (ringRadius + 3), Math.sin(needleRad) * (ringRadius + 3));
-            ctx.stroke();
-
-            ctx.restore();
-        }
     }, [gameMode, gameState, interactiveFurniture, gatePowerOn]);
 
     // ゲームループ(rAF)
@@ -1655,22 +1803,20 @@ export function useGameLoop() {
         playerLife: playerLifeState,
         generatorsRemaining,
         gatePowerOn,
+        searchReaction,
         player: playerRef.current,
         seekerAI: seekerAIRef.current,
         aiHiders: aiHidersRef.current,
         generators: generatorsRef.current,
         exitGate: exitGateRef.current,
-        skillCheckActive: skillCheckRef.current.active,
         interactiveFurniture,
         interactiveGenerator,
         interactiveGate,
-        interactiveHider,
         joystickVec,
         mousePos,
         startGame,
         returnToMenu,
         handleInteract,
-        handleSkillCheckInput,
         toggleMute,
         renderCanvas
     };
