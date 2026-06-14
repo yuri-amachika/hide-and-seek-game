@@ -36,3 +36,5 @@
   - `mapData.ts`, `soundManager.ts`, `useGameLoop.ts`, `App.tsx`, `index.css` を更新・リファクタリング。
   - バグ修正項目（マップ視認性、キラー攻撃、コマンド名）の実装完了。
   - `npm run build` によるビルドの成功と、メモリバンクの更新。
+  - Gitリポジトリ用に `.gitignore` を追加し、初回コミット（`chore: 初期コミットとプロジェクト基盤の構築`）を作成して GitHub（`yuri-amachika/hide-and-seek-game`）へプッシュ。
+  - 手動デプロイ対応：`vite.config.ts` で `base` パスを相対パス `'./'` に変更し、`index.html` 内の favicon 参照を相対パス `./vite.svg` に修正。手動デプロイ用のビルドが正常に通ることを検証。
