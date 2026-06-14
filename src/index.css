@@ -151,3 +151,24 @@ canvas {
   animation: shake 0.25s infinite;
 }
 
+/* Landscape warning for mobile devices */
+.landscape-warning {
+  display: none;
+}
+
+@media (orientation: portrait) and (max-width: 1024px) {
+  .landscape-warning {
+    display: flex;
+  }
+}
+
+/* Touch device control visibility */
+.touch-device-controls {
+  display: block !important;
+}
+
+@media (pointer: fine) {
+  .touch-device-controls {
+    display: none !important;
+  }
+}

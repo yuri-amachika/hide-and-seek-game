@@ -222,6 +222,13 @@ function App() {
                 fontFamily: "'Courier New', Courier, monospace",
             }}
         >
+            {/* Landscape 警告オーバーレイ (Portrait時に表示) */}
+            <div className="landscape-warning fixed inset-0 z-[100] bg-black flex-col items-center justify-center p-8 text-center border-8 border-red-900">
+                <div className="text-6xl mb-6 animate-bounce">📱🔄</div>
+                <h2 className="text-3xl font-black text-red-500 mb-4 tracking-widest">画面を横向きに<br/>してください</h2>
+                <p className="text-zinc-400 font-bold">Please rotate your device to landscape mode for the best experience.</p>
+            </div>
+
             {/* CRT 走査線エフェクト */}
             <div className="scanlines"></div>
 
@@ -235,172 +242,183 @@ function App() {
 
             {/* 1. メインメニュー画面 */}
             {gameState === 'menu' && (
-                <div className="w-full max-w-lg glass-panel p-8 rounded-2xl flex flex-col items-center border border-red-950 shadow-2xl z-30 m-4">
+                <div className="w-full max-w-2xl glass-panel p-4 md:p-8 rounded-2xl flex flex-col items-center border border-red-950 shadow-2xl z-30 m-2 md:m-4 max-h-[95vh] overflow-y-auto no-scrollbar">
                     <h1 
-                        className="text-4xl sm:text-5xl font-black text-red-600 mb-2 tracking-widest relative glitch-text neon-text-red"
+                        className="text-3xl sm:text-4xl md:text-5xl font-black text-red-600 mb-1 md:mb-2 tracking-widest relative glitch-text neon-text-red text-center"
                         data-text="HIDE QUICKLY"
                     >
                         HIDE QUICKLY
                     </h1>
-                    <p className="text-gray-400 text-sm mb-8 tracking-wider">SURVIVAL HORROR 2D</p>
+                    <p className="text-gray-400 text-xs md:text-sm mb-4 md:mb-8 tracking-wider">SURVIVAL HORROR 2D</p>
 
-                    {/* モード選択 */}
-                    <div className="w-full mb-6">
-                        <label className="text-red-500 font-bold block mb-2 text-xs uppercase tracking-widest">プレイモードを選択</label>
-                        <div className="grid grid-cols-2 gap-4">
-                            <button
-                                onClick={() => setSelectedMode('hider')}
-                                className={`py-3 px-4 rounded-lg font-bold border transition-all ${
-                                    selectedMode === 'hider'
-                                        ? 'bg-blue-900 border-blue-500 text-white shadow-lg shadow-blue-900/30'
-                                        : 'bg-zinc-900 border-zinc-800 text-gray-400 hover:border-zinc-700'
-                                }`}
-                            >
-                                生存者 (隠れる/脱出)
-                            </button>
-                            <button
-                                onClick={() => setSelectedMode('seeker')}
-                                className={`py-3 px-4 rounded-lg font-bold border transition-all ${
-                                    selectedMode === 'seeker'
-                                        ? 'bg-amber-950 border-amber-500 text-white shadow-lg shadow-amber-950/30'
-                                        : 'bg-zinc-900 border-zinc-800 text-gray-400 hover:border-zinc-700'
-                                }`}
-                            >
-                                殺人鬼 (探す)
-                            </button>
-                        </div>
-                    </div>
-
-                    {/* 難易度選択 */}
-                    <div className="w-full mb-8">
-                        <label className="text-red-500 font-bold block mb-2 text-xs uppercase tracking-widest">難易度</label>
-                        <div className="grid grid-cols-3 gap-2">
-                            {(['easy', 'normal', 'hard'] as Difficulty[]).map((diff) => (
+                    <div className="flex flex-col md:flex-row w-full gap-4 md:gap-8 mb-4 md:mb-8">
+                        {/* モード選択 */}
+                        <div className="w-full md:w-1/2">
+                            <label className="text-red-500 font-bold block mb-2 text-xs md:text-sm uppercase tracking-widest text-center">プレイモード</label>
+                            <div className="flex flex-col gap-2 md:gap-4">
                                 <button
-                                    key={diff}
-                                    onClick={() => setSelectedDifficulty(diff)}
-                                    className={`py-2 px-3 rounded-lg text-xs font-bold border capitalize transition-all ${
-                                        selectedDifficulty === diff
-                                            ? 'bg-red-950 border-red-600 text-red-200'
-                                            : 'bg-zinc-900 border-zinc-800 text-gray-400 hover:border-zinc-700'
+                                    onClick={() => setSelectedMode('hider')}
+                                    className={`py-3 md:py-4 px-4 rounded-xl font-black text-sm md:text-base border-2 transition-all ${
+                                        selectedMode === 'hider'
+                                            ? 'bg-blue-900 border-blue-400 text-white shadow-[0_0_15px_rgba(59,130,246,0.5)] scale-105'
+                                            : 'bg-zinc-900 border-zinc-800 text-gray-400 hover:border-zinc-600'
                                     }`}
                                 >
-                                    {diff === 'easy' ? 'イージー' : diff === 'normal' ? 'ノーマル' : 'ハード'}
+                                    🏃‍♂️ 生存者 (逃げる)
                                 </button>
-                            ))}
+                                <button
+                                    onClick={() => setSelectedMode('seeker')}
+                                    className={`py-3 md:py-4 px-4 rounded-xl font-black text-sm md:text-base border-2 transition-all ${
+                                        selectedMode === 'seeker'
+                                            ? 'bg-amber-950 border-amber-400 text-white shadow-[0_0_15px_rgba(251,191,36,0.5)] scale-105'
+                                            : 'bg-zinc-900 border-zinc-800 text-gray-400 hover:border-zinc-600'
+                                    }`}
+                                >
+                                    🔪 殺人鬼 (探す)
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* 難易度選択 */}
+                        <div className="w-full md:w-1/2">
+                            <label className="text-red-500 font-bold block mb-2 text-xs md:text-sm uppercase tracking-widest text-center">難易度</label>
+                            <div className="flex flex-col gap-2">
+                                {(['easy', 'normal', 'hard'] as Difficulty[]).map((diff) => (
+                                    <button
+                                        key={diff}
+                                        onClick={() => setSelectedDifficulty(diff)}
+                                        className={`py-2 md:py-3 px-3 rounded-lg text-xs md:text-sm font-bold border-2 capitalize transition-all ${
+                                            selectedDifficulty === diff
+                                                ? 'bg-red-950 border-red-500 text-red-100 shadow-[0_0_10px_rgba(239,68,68,0.4)] scale-105'
+                                                : 'bg-zinc-900 border-zinc-800 text-gray-400 hover:border-zinc-600'
+                                        }`}
+                                    >
+                                        {diff === 'easy' ? '🟢 イージー' : diff === 'normal' ? '🟡 ノーマル' : '🔴 ハード'}
+                                    </button>
+                                ))}
+                            </div>
                         </div>
                     </div>
 
-                    {/* ハイスコア */}
-                    <div className="text-center mb-8">
-                        <p className="text-zinc-500 text-xs tracking-wider uppercase mb-1">ハイスコア</p>
-                        <p className="text-2xl font-bold text-amber-500">{highScore} PTS</p>
+                    <div className="flex w-full justify-between items-end mb-4 md:mb-6">
+                        {/* ハイスコア */}
+                        <div className="text-left">
+                            <p className="text-zinc-500 text-[10px] md:text-xs tracking-wider uppercase mb-0 md:mb-1">ハイスコア</p>
+                            <p className="text-lg md:text-2xl font-bold text-amber-500">{highScore} PTS</p>
+                        </div>
+
+                        {/* スタートボタン */}
+                        <button
+                            onClick={() => startGame(selectedMode, selectedDifficulty)}
+                            className="py-4 md:py-5 px-8 md:px-12 bg-red-600 hover:bg-red-700 active:bg-red-800 text-white font-black text-lg md:text-xl rounded-2xl transition-all shadow-[0_0_20px_rgba(220,38,38,0.6)] neon-text-red border-2 border-red-400 uppercase tracking-widest animate-pulse"
+                        >
+                            ゲーム開始
+                        </button>
                     </div>
 
-                    {/* スタートボタン */}
-                    <button
-                        onClick={() => startGame(selectedMode, selectedDifficulty)}
-                        className="w-full py-4 bg-red-600 hover:bg-red-700 active:bg-red-800 text-white font-bold text-lg rounded-xl transition-all shadow-lg shadow-red-900/40 neon-text-red border border-red-500 uppercase tracking-widest"
-                    >
-                        ゲーム開始
-                    </button>
-
                     {/* 操作ガイド */}
-                    <div className="mt-8 pt-6 border-t border-zinc-800 w-full text-zinc-500 text-[11px] leading-relaxed">
-                        <p className="font-bold text-zinc-400 mb-1">🎮 操作方法:</p>
+                    <div className="mt-2 md:mt-6 pt-4 border-t border-zinc-800 w-full text-zinc-400 text-[10px] md:text-xs leading-relaxed hidden sm:block">
+                        <p className="font-bold text-zinc-300 mb-1">🎮 操作方法:</p>
                         <p>・【移動】PC: WASD / 矢印キー | スマホ: 左下仮想スティック</p>
                         <p>・【ダッシュ】PC: Shiftキー | スマホ: スティックを大きく傾ける</p>
-                        <p>・【アクション】PC: スペースキー (家具に隠れる/出る/発電機の修理/ゲート開放)</p>
-                        <p>・【スキルチェック】PC: スペースキー | スマホ: 画面タップ（グリーンゾーンで）</p>
+                        <p>・【アクション】PC: スペースキー | スマホ: 右下ボタン</p>
                     </div>
                 </div>
             )}
 
             {/* 2. ゲームプレイ画面 */}
             {(gameState === 'hiding_phase' || gameState === 'hunting_phase') && (
-                <div className="w-full max-w-4xl flex flex-col items-center z-20 px-2 relative">
-                    {/* HUD ヘッダー */}
-                    <div className="w-full flex items-center justify-between glass-panel px-4 py-3 rounded-xl mb-2 border-zinc-800 text-xs tracking-wider">
-                        <div className="flex items-center gap-4">
-                            <span className="font-bold text-red-500 uppercase">
+                <div className="absolute inset-0 w-full h-full flex flex-col items-center justify-center z-20 overflow-hidden bg-zinc-950">
+
+                    {/* HUD ヘッダー (絶対配置でキャンバス上部に被せる) */}
+                    <div className="absolute top-2 left-2 right-2 flex items-center justify-between glass-panel px-4 py-2 rounded-xl z-40 border border-zinc-800/50 shadow-lg pointer-events-none">
+                        <div className="flex items-center gap-3 md:gap-4 pointer-events-auto">
+                            <span className="font-bold text-red-500 uppercase text-xs md:text-sm">
                                 {gameMode === 'hider' ? '生存者' : '殺人鬼'}
                             </span>
-                            <span className="text-zinc-500">|</span>
+                            <span className="text-zinc-500 hidden md:inline">|</span>
                             {gameMode === 'hider' && (
                                 <div className="flex items-center gap-1">
-                                    <span className="text-zinc-500 mr-1 text-[10px]">LIFES:</span>
-                                    {renderHearts()}
+                                    <span className="text-zinc-500 mr-1 text-[9px] md:text-[10px]">LIFES:</span>
+                                    <div className="flex">{renderHearts()}</div>
                                 </div>
                             )}
                         </div>
-                        <div className="flex items-center gap-6">
+                        <div className="flex items-center gap-3 md:gap-6 pointer-events-auto">
                             {gameMode === 'hider' && (
                                 <div className="text-center">
-                                    <p className="text-[10px] text-zinc-500 mb-0.5">発電機残り</p>
-                                    <p className={`text-sm font-bold ${gatePowerOn ? 'text-green-500 neon-text-green animate-pulse' : 'text-amber-500'}`}>
-                                        {gatePowerOn ? '⚡ 脱出ゲート通電中！' : `🔌 ${generatorsRemaining} 台`}
+                                    <p className="text-[9px] md:text-[10px] text-zinc-500 mb-0">発電機</p>
+                                    <p className={`text-xs md:text-sm font-bold ${gatePowerOn ? 'text-green-500 neon-text-green animate-pulse' : 'text-amber-500'}`}>
+                                        {gatePowerOn ? '⚡ 脱出可' : `🔌 ${generatorsRemaining}`}
                                     </p>
                                 </div>
                             )}
                             <div className="text-center">
-                                <p className="text-[10px] text-zinc-500 mb-0.5">残り時間</p>
-                                <p className={`text-lg font-bold font-mono ${timer <= 10 ? 'text-red-500 neon-text-red blink' : 'text-white'}`}>
+                                <p className="text-[9px] md:text-[10px] text-zinc-500 mb-0">TIME</p>
+                                <p className={`text-sm md:text-lg font-bold font-mono ${timer <= 10 ? 'text-red-500 neon-text-red blink' : 'text-white'}`}>
                                     {timer}s
                                 </p>
                             </div>
-                            <div className="text-center">
-                                <p className="text-[10px] text-zinc-500 mb-0.5">スコア</p>
-                                <p className="text-lg font-bold font-mono text-amber-400">{score}</p>
+                            <div className="text-center hidden sm:block">
+                                <p className="text-[9px] md:text-[10px] text-zinc-500 mb-0">SCORE</p>
+                                <p className="text-sm md:text-lg font-bold font-mono text-amber-400">{score}</p>
                             </div>
                             <button 
                                 onClick={toggleMute}
-                                className="p-2 rounded-lg bg-zinc-900 border border-zinc-800 hover:bg-zinc-800"
+                                className="p-2 rounded-lg bg-zinc-900/80 border border-zinc-800 hover:bg-zinc-800 pointer-events-auto w-8 h-8 md:w-10 md:h-10 flex items-center justify-center"
                             >
                                 {isMuted ? '🔇' : '🔊'}
                             </button>
                         </div>
                     </div>
 
-                    {/* HUD フェーズ表示アラート */}
+                    {/* HUD フェーズ表示アラート (絶対配置) */}
                     {gameState === 'hiding_phase' && gameMode === 'hider' && (
-                        <div className="w-full bg-blue-900/60 border border-blue-500 text-blue-100 px-4 py-2 rounded-lg mb-2 text-center text-xs font-bold animate-pulse">
+                        <div className="absolute top-16 md:top-20 left-1/2 -translate-x-1/2 w-[90%] max-w-md bg-blue-900/80 border border-blue-500 text-blue-100 px-4 py-2 rounded-lg text-center text-xs md:text-sm font-bold animate-pulse z-40 pointer-events-none shadow-lg backdrop-blur-sm">
                             準備フェーズ: マップ内の発電機を修理し、ゲートから脱出してください！
                         </div>
                     )}
 
-                    {/* マップゲームCanvas */}
-                    <div className="relative border-2 border-zinc-800 bg-zinc-950 rounded-xl overflow-hidden shadow-2xl w-full max-w-[800px] aspect-[4/3]">
+                    {/* マップゲームCanvas (全画面表示) */}
+                    <div className="w-full h-full relative flex items-center justify-center">
                         <canvas
                             ref={canvasRef}
                             width={MAP_WIDTH}
                             height={MAP_HEIGHT}
                             onMouseMove={handleMouseMove}
                             className="w-full h-full object-contain cursor-crosshair"
+                            style={{
+                                maxHeight: '100vh',
+                                maxWidth: '100vw'
+                            }}
                         />
 
                         {/* モバイル用バーチャルジョイスティック＆タッチ操作用レイヤー */}
                         <div 
-                            className="absolute inset-0 z-30 md:hidden"
+                            className="absolute inset-0 z-30 touch-device-controls"
                             onTouchStart={handleViewTouchStart}
                             onTouchMove={handleViewTouchMove}
                             onTouchEnd={handleViewTouchEnd}
                         >
                             {/* ジョイスティックタッチ検出エリア (画面左下) */}
                             <div 
-                                className="absolute bottom-4 left-4 w-40 h-40 rounded-full flex items-center justify-center pointer-events-auto"
+                                className="absolute bottom-6 left-6 w-48 h-48 rounded-full flex items-center justify-center pointer-events-auto"
                                 onTouchStart={(e) => { e.stopPropagation(); handleJoystickTouchStart(e); }}
                                 onTouchMove={(e) => { e.stopPropagation(); handleJoystickTouchMove(e); }}
                                 onTouchEnd={(e) => { e.stopPropagation(); handleJoystickTouchEnd(e); }}
-                                style={{ background: 'rgba(255,255,255,0.02)', border: '1px dashed rgba(255,255,255,0.1)' }}
+                                style={{ background: 'rgba(255,255,255,0.05)', border: '2px dashed rgba(255,255,255,0.2)' }}
                             >
+                                {!joystickStartPos && (
+                                    <div className="text-white/30 font-bold text-xs pointer-events-none">移動</div>
+                                )}
                                 {joystickStartPos && joystickCurPos && (
-                                    <div className="relative w-24 h-24 rounded-full bg-zinc-900/50 border border-zinc-700/30 flex items-center justify-center">
-                                        <div className="w-4 h-4 rounded-full bg-zinc-700/50"></div>
+                                    <div className="relative w-32 h-32 rounded-full bg-zinc-900/60 border-2 border-zinc-500/40 flex items-center justify-center">
+                                        <div className="w-6 h-6 rounded-full bg-zinc-500/50"></div>
                                         <div 
-                                            className="absolute w-12 h-12 rounded-full bg-red-600/70 border border-red-500 flex items-center justify-center shadow-lg shadow-red-900/50"
+                                            className="absolute w-16 h-16 rounded-full bg-red-500 border-2 border-red-300 flex items-center justify-center shadow-[0_0_15px_rgba(239,68,68,0.8)]"
                                             style={{
-                                                left: `calc(50% - 24px + ${Math.min(joystickCurPos.x - joystickStartPos.x, 45)}px)`,
-                                                top: `calc(50% - 24px + ${Math.min(joystickCurPos.y - joystickStartPos.y, 45)}px)`,
+                                                left: `calc(50% - 32px + ${Math.max(-45, Math.min(joystickCurPos.x - joystickStartPos.x, 45))}px)`,
+                                                top: `calc(50% - 32px + ${Math.max(-45, Math.min(joystickCurPos.y - joystickStartPos.y, 45))}px)`,
                                             }}
                                         ></div>
                                     </div>
@@ -414,16 +432,17 @@ function App() {
                                         e.stopPropagation();
                                         handleInteract();
                                     }}
-                                    className="absolute bottom-10 right-10 w-20 h-20 rounded-full bg-red-600/90 border-2 border-red-500 text-white font-black text-[13px] shadow-2xl flex items-center justify-center animate-bounce z-40 pointer-events-auto active:scale-95"
+                                    className="absolute bottom-8 right-8 w-28 h-28 rounded-full bg-red-600 border-4 border-red-400 text-white font-black text-lg shadow-[0_0_30px_rgba(239,68,68,0.8)] flex flex-col items-center justify-center animate-bounce z-40 pointer-events-auto active:scale-90 active:bg-red-800"
                                 >
-                                    {getInteractText()}
+                                    <span className="text-3xl mb-1">👆</span>
+                                    <span>{getInteractText()}</span>
                                 </button>
                             )}
 
-                            {/* モバイル用スキルチェックタップ判定エリア (画面右側全体) */}
+                            {/* モバイル用スキルチェックタップ判定エリア (画面全体を覆う) */}
                             {skillCheckActive && (
                                 <div 
-                                    className="absolute inset-0 bg-transparent z-50 flex items-center justify-center pointer-events-auto cursor-pointer"
+                                    className="absolute inset-0 bg-black/20 z-50 flex items-center justify-center pointer-events-auto cursor-pointer"
                                     onTouchStart={(e) => {
                                         e.stopPropagation();
                                         handleSkillCheckInput();
@@ -433,8 +452,8 @@ function App() {
                                         handleSkillCheckInput();
                                     }}
                                 >
-                                    <div className="glass-panel px-4 py-2 rounded-lg border border-green-500 text-xs font-bold text-green-400 animate-pulse">
-                                        画面をタップ！
+                                    <div className="glass-panel px-8 py-6 rounded-2xl border-4 border-green-500 text-xl font-black text-green-400 animate-ping shadow-[0_0_30px_rgba(16,185,129,0.8)]">
+                                        👆 ここをタップ！
                                     </div>
                                 </div>
                             )}
@@ -442,21 +461,21 @@ function App() {
 
                         {/* PC向けアクションガイド */}
                         {!skillCheckActive && (
-                            <>
+                            <div className="hidden lg:block">
                                 {interactiveHider && gameMode === 'seeker' && (
-                                    <div className="absolute top-[8%] left-1/2 -translate-x-1/2 glass-panel px-4 py-2 rounded-lg border border-red-500/30 text-xs font-bold text-center z-40 hidden md:block">
+                                    <div className="absolute top-[12%] left-1/2 -translate-x-1/2 glass-panel px-4 py-2 rounded-lg border border-red-500/30 text-xs font-bold text-center z-40">
                                         <p className="text-red-400 font-mono text-sm mb-1">{interactiveHider.name}</p>
                                         <span className="bg-red-950 px-2 py-0.5 rounded border border-red-600 text-red-200 font-mono">SPACE</span> キーで捕まえる
                                     </div>
                                 )}
                                 {interactiveFurniture && (
-                                    <div className="absolute top-[8%] left-1/2 -translate-x-1/2 glass-panel px-4 py-2 rounded-lg border border-blue-500/30 text-xs font-bold text-center z-40 hidden md:block">
+                                    <div className="absolute top-[12%] left-1/2 -translate-x-1/2 glass-panel px-4 py-2 rounded-lg border border-blue-500/30 text-xs font-bold text-center z-40">
                                         <p className="text-blue-400 font-mono text-sm mb-1">{interactiveFurniture.name}</p>
                                         <span className="bg-blue-950 px-2 py-0.5 rounded border border-blue-600 text-blue-200 font-mono">SPACE</span> キーで{gameMode === 'seeker' ? '探す' : (player.isHidden ? '出る' : '隠れる')}
                                     </div>
                                 )}
                                 {interactiveGenerator && (
-                                    <div className="absolute top-[8%] left-1/2 -translate-x-1/2 glass-panel px-4 py-2 rounded-lg border border-amber-500/30 text-xs font-bold text-center z-40 hidden md:block">
+                                    <div className="absolute top-[12%] left-1/2 -translate-x-1/2 glass-panel px-4 py-2 rounded-lg border border-amber-500/30 text-xs font-bold text-center z-40">
                                         <p className="text-amber-400 font-mono text-sm mb-1">{interactiveGenerator.name}</p>
                                         {gameMode === 'seeker' ? (
                                             <span><span className="bg-amber-950 px-2 py-0.5 rounded border border-amber-600 text-amber-200 font-mono">SPACE</span> キーで壊す</span>
@@ -466,12 +485,12 @@ function App() {
                                     </div>
                                 )}
                                 {interactiveGate && gameMode === 'hider' && (
-                                    <div className="absolute top-[8%] left-1/2 -translate-x-1/2 glass-panel px-4 py-2 rounded-lg border border-green-500/30 text-xs font-bold text-center z-40 hidden md:block">
+                                    <div className="absolute top-[12%] left-1/2 -translate-x-1/2 glass-panel px-4 py-2 rounded-lg border border-green-500/30 text-xs font-bold text-center z-40">
                                         <p className="text-green-400 font-mono text-sm mb-1">{interactiveGate.name}</p>
                                         <span className="bg-green-950 px-2 py-0.5 rounded border border-green-600 text-green-200 font-mono">SPACE 長押し</span> で脱出ゲートを開く
                                     </div>
                                 )}
-                            </>
+                            </div>
                         )}
                     </div>
                 </div>
@@ -479,59 +498,59 @@ function App() {
 
             {/* 3. リザルト画面 */}
             {(gameState === 'game_over' || gameState === 'victory') && (
-                <div className="w-full max-w-md glass-panel p-8 rounded-2xl flex flex-col items-center border shadow-2xl z-30 m-4 animate-fade-in">
+                <div className="w-full max-w-lg glass-panel p-6 md:p-8 rounded-2xl flex flex-col items-center border shadow-2xl z-30 m-4 animate-fade-in max-h-[95vh] overflow-y-auto no-scrollbar">
                     {gameState === 'game_over' ? (
                         <>
                             <h2 
-                                className="text-4xl font-black text-red-600 mb-2 tracking-widest glitch-text neon-text-red"
+                                className="text-4xl md:text-5xl font-black text-red-600 mb-1 md:mb-2 tracking-widest glitch-text neon-text-red text-center"
                                 data-text="KILLED"
                             >
                                 YOU DIED
                             </h2>
-                            <p className="text-zinc-500 text-xs mb-8 uppercase tracking-widest">キラーに排除されました</p>
+                            <p className="text-zinc-500 text-[10px] md:text-xs mb-4 md:mb-6 uppercase tracking-widest text-center">キラーに排除されました</p>
                         </>
                     ) : (
                         <>
                             <h2 
-                                className="text-4xl font-black text-emerald-500 mb-2 tracking-widest neon-text-green"
+                                className="text-4xl md:text-5xl font-black text-emerald-500 mb-1 md:mb-2 tracking-widest neon-text-green text-center"
                             >
                                 ESCAPED
                             </h2>
-                            <p className="text-zinc-500 text-xs mb-8 uppercase tracking-widest">無事に脱出しました</p>
+                            <p className="text-zinc-500 text-[10px] md:text-xs mb-4 md:mb-6 uppercase tracking-widest text-center">無事に脱出しました</p>
                         </>
                     )}
 
-                    <div className="w-full bg-zinc-950/70 p-4 rounded-xl border border-zinc-800/50 text-center mb-8">
-                        <div className="flex justify-between items-center mb-2">
-                            <span className="text-zinc-500 text-xs uppercase tracking-wider">プレイしたモード</span>
-                            <span className="font-bold text-sm text-zinc-200">
-                                {gameMode === 'hider' ? '生存者' : '殺人鬼'}
+                    <div className="w-full bg-zinc-950/80 p-4 md:p-6 rounded-xl border border-zinc-800/80 text-center mb-6 md:mb-8 shadow-inner">
+                        <div className="flex justify-between items-center mb-2 md:mb-3">
+                            <span className="text-zinc-500 text-[10px] md:text-xs uppercase tracking-wider">プレイモード</span>
+                            <span className="font-bold text-sm md:text-base text-zinc-200">
+                                {gameMode === 'hider' ? '🏃 生存者' : '🔪 殺人鬼'}
                             </span>
                         </div>
-                        <div className="flex justify-between items-center mb-4">
-                            <span className="text-zinc-500 text-xs uppercase tracking-wider">ゲーム難易度</span>
-                            <span className="font-bold text-sm text-zinc-200 uppercase">
+                        <div className="flex justify-between items-center mb-3 md:mb-4">
+                            <span className="text-zinc-500 text-[10px] md:text-xs uppercase tracking-wider">難易度</span>
+                            <span className="font-bold text-sm md:text-base text-zinc-200 uppercase">
                                 {difficulty}
                             </span>
                         </div>
-                        <div className="flex justify-between items-center border-t border-zinc-900 pt-3">
-                            <span className="text-zinc-400 text-sm font-bold">獲得スコア</span>
-                            <span className="text-2xl font-black text-amber-500 font-mono">{score} PTS</span>
+                        <div className="flex justify-between items-end border-t border-zinc-800 pt-3 md:pt-4">
+                            <span className="text-zinc-400 text-xs md:text-sm font-bold pb-1">獲得スコア</span>
+                            <span className="text-3xl md:text-4xl font-black text-amber-500 font-mono neon-text-red shadow-amber-500">{score} <span className="text-sm text-amber-600">PTS</span></span>
                         </div>
                     </div>
 
-                    <div className="grid grid-cols-1 gap-3 w-full">
+                    <div className="flex flex-col sm:flex-row gap-3 md:gap-4 w-full">
                         <button
                             onClick={() => startGame(gameMode, difficulty)}
-                            className="py-3 px-4 bg-red-600 hover:bg-red-700 active:bg-red-800 text-white font-bold rounded-xl transition-all shadow-md shadow-red-950/40 uppercase tracking-widest text-sm"
+                            className="flex-1 py-4 md:py-5 px-4 bg-red-600 hover:bg-red-700 active:bg-red-800 text-white font-black rounded-xl transition-all shadow-[0_0_15px_rgba(220,38,38,0.4)] border border-red-500 uppercase tracking-widest text-sm md:text-base scale-100 hover:scale-105"
                         >
-                            もう一度プレイ
+                            🔄 もう一度プレイ
                         </button>
                         <button
                             onClick={returnToMenu}
-                            className="py-3 px-4 bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-gray-300 font-bold rounded-xl transition-all uppercase tracking-widest text-sm"
+                            className="flex-1 py-4 md:py-5 px-4 bg-zinc-900 border-2 border-zinc-700 hover:bg-zinc-800 text-gray-200 font-bold rounded-xl transition-all uppercase tracking-widest text-sm md:text-base scale-100 hover:scale-105"
                         >
-                            メインメニューに戻る
+                            🏠 メニューへ
                         </button>
                     </div>
                 </div>
