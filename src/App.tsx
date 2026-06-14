@@ -15,6 +15,7 @@ function App() {
         generatorsRemaining,
         gatePowerOn,
         player,
+        seekerAI,
         interactiveFurniture,
         interactiveGenerator,
         interactiveGate,
@@ -167,6 +168,8 @@ function App() {
 
     // ダメージ被撃時の揺れ・画面グリッチ
     const isDamaged = player.hitCooldown > 0;
+    // キラーがプレイヤーの隠れている家具を探索中かどうか
+    const isUnderSearch = player.isHidden && seekerAI && seekerAI.state === 'searching' && seekerAI.searchTargetFurnitureId === player.hiddenInFurnitureId;
 
     // ライフ表示のハート配列生成
     const renderHearts = () => {
@@ -232,11 +235,11 @@ function App() {
             {/* CRT 走査線エフェクト */}
             <div className="scanlines"></div>
 
-            {/* 心音脈動赤枠 (被撃時、またはスキルチェック警告時) */}
-            {gameState === 'hunting_phase' && gameMode === 'hider' && isDamaged && (
+            {/* 心音脈動赤枠 (被撃時、または家具探索時) */}
+            {gameState === 'hunting_phase' && gameMode === 'hider' && (isDamaged || isUnderSearch) && (
                 <div 
                     className="pulse-red-border absolute inset-0 z-20 pointer-events-none"
-                    style={{ '--pulse-speed': '0.4s' } as React.CSSProperties}
+                    style={{ '--pulse-speed': isUnderSearch ? '0.25s' : '0.4s' } as React.CSSProperties}
                 ></div>
             )}
 
@@ -379,6 +382,13 @@ function App() {
                         </div>
                     )}
 
+                    {/* 家具探索時の警告アラート */}
+                    {gameState === 'hunting_phase' && gameMode === 'hider' && isUnderSearch && (
+                        <div className="absolute top-16 md:top-20 left-1/2 -translate-x-1/2 w-[90%] max-w-md bg-red-950/90 border-2 border-red-500 text-red-200 px-4 py-2 rounded-lg text-center text-xs md:text-sm font-black animate-pulse z-40 pointer-events-none shadow-[0_0_20px_rgba(239,68,68,0.5)] backdrop-blur-sm">
+                            ⚠️ 殺人鬼が隠れ場所を捜索中...！
+                        </div>
+                    )}
+
                     {/* マップゲームCanvas (全画面表示) */}
                     <div className="w-full h-full relative flex items-center justify-center">
                         <canvas
@@ -503,20 +513,24 @@ function App() {
                         <>
                             <h2 
                                 className="text-4xl md:text-5xl font-black text-red-600 mb-1 md:mb-2 tracking-widest glitch-text neon-text-red text-center"
-                                data-text="KILLED"
+                                data-text={gameMode === 'seeker' ? 'DEFEATED' : 'KILLED'}
                             >
-                                YOU DIED
+                                {gameMode === 'seeker' ? 'DEFEATED' : 'YOU DIED'}
                             </h2>
-                            <p className="text-zinc-500 text-[10px] md:text-xs mb-4 md:mb-6 uppercase tracking-widest text-center">キラーに排除されました</p>
+                            <p className="text-zinc-500 text-[10px] md:text-xs mb-4 md:mb-6 uppercase tracking-widest text-center">
+                                {gameMode === 'seeker' ? 'サバイバーに脱出されました' : 'キラーに排除されました'}
+                            </p>
                         </>
                     ) : (
                         <>
                             <h2 
                                 className="text-4xl md:text-5xl font-black text-emerald-500 mb-1 md:mb-2 tracking-widest neon-text-green text-center"
                             >
-                                ESCAPED
+                                {gameMode === 'seeker' ? 'VICTORY' : 'ESCAPED'}
                             </h2>
-                            <p className="text-zinc-500 text-[10px] md:text-xs mb-4 md:mb-6 uppercase tracking-widest text-center">無事に脱出しました</p>
+                            <p className="text-zinc-500 text-[10px] md:text-xs mb-4 md:mb-6 uppercase tracking-widest text-center">
+                                {gameMode === 'seeker' ? 'サバイバーを全員排除しました' : '無事に脱出しました'}
+                            </p>
                         </>
                     )}
 
