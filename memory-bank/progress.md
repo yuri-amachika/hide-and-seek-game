@@ -39,6 +39,9 @@
   - Gitリポジトリ用に `.gitignore` を追加し、初回コミット（`chore: 初期コミットとプロジェクト基盤の構築`）を作成して GitHub（`yuri-amachika/hide-and-seek-game`）へプッシュ。
   - 手動デプロイ対応：`vite.config.ts` で `base` パスを相対パス `'./'` に変更し、`index.html` 内の favicon 参照を相対パス `./vite.svg` に修正. 手動デプロイ用のビルドが正常に通ることを検証。
   - `gh-pages` パッケージの導入：手動デプロイを簡単にするため、`gh-pages` を開発依存関係に追加し、`package.json` に `predeploy` と `deploy` スクリプトを追加。
-  - モバイルUI最適化PRのマージ：モバイル端末向けの縦画面警告やレスポンシブレイアウトを含む `feat/mobile-ui-optimization` PRを `main` ブランチへマージし、本番ビルドの成功を確認。
+  - モバイルUI最適化PRのマージ：モバイル端末向けの縦画面警告やレスポンシブレイアウトを含む `feat/mobile-ui-optimization` PRを `main` ブランチへマージし、本本ビルドの成功を確認。
+  - **サバイバーゲーム体験の改善**:
+    - 「隠れる」コマンド表示の不具合修正、AIサバイバーの削除、キラーAIによる隠れ場所捜索＆攻撃（即死回避）ロジックの改善タスクに着手。
+
 
 
